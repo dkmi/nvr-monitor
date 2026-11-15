@@ -2,7 +2,7 @@ import io,json,os,tarfile,tempfile,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 from app.server import create_app
-from app.updates import Updates,version_tuple
+from app.updates import Updates,version_tuple,needs_update
 from updater.host import unpack,Host,version
 
 class UpdateTests(unittest.TestCase):
@@ -72,7 +72,7 @@ class HostFlowTests(unittest.TestCase):
     def output(self,args):
      if args[:2]==['docker','inspect']:return 'old-image'
      return 'container-id'
-    def healthy(self,expected):
+    def healthy(self,expected,revision=None):
      if expected=='1.4.1':
       (self.root/'data/config.sqlite').write_bytes(b'migrated database')
       if fail:raise RuntimeError('Simulated health failure')
@@ -86,3 +86,37 @@ class HostFlowTests(unittest.TestCase):
    backup=Path(host.job['backup']);self.assertEqual((backup/'data/config.sqlite').read_bytes(),b'original users and cameras')
  def test_success_preserves_runtime_data(self):self.exercise()
  def test_health_failure_restores_source_image_and_database(self):self.exercise(fail=True)
+
+class RevisionTests(unittest.TestCase):
+ def test_same_version_changed_known_and_unknown(self):
+  r={'tag':'v1.4.0','revision':'a'*40}
+  self.assertTrue(needs_update(r,revision='b'*40))
+  self.assertTrue(needs_update(r,revision=None))
+  self.assertFalse(needs_update(r,revision='a'*40))
+  self.assertFalse(needs_update({'tag':'v1.3.9','revision':'b'*40},revision='a'*40))
+  self.assertTrue(needs_update({'tag':'v1.4.1','revision':'a'*40},revision='a'*40))
+ def test_same_version_queue_pins_commit_and_rejects_race(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);(root/'status.json').write_text(json.dumps({'heartbeat':time.time(),'state':'idle'}))
+   release={'tag':'v1.4.0','revision':'b'*40}
+   with patch('app.updates.installed_revision',return_value='a'*40),patch('app.updates.latest_release',return_value=release):
+    u=Updates(root);self.assertEqual(u.status(check=True)['current_revision'],'a'*40);self.assertTrue(u.status()['update_available'])
+    with self.assertRaises(ValueError):u.queue('v1.4.0','c'*40)
+    u.queue('v1.4.0','b'*40);self.assertEqual(json.loads((root/'request.json').read_text()),release)
+   (root/'request.json').unlink()
+   with patch('app.updates.installed_revision',return_value='b'*40),patch('app.updates.latest_release',return_value=release):
+    u=Updates(root);self.assertFalse(u.status(check=True)['update_available'])
+    with self.assertRaises(ValueError):u.queue('v1.4.0','b'*40)
+ def test_discovery_resolves_tag_commit(self):
+  from app.updates import latest_release
+  from unittest.mock import Mock
+  r=Mock();r.json.return_value={'tag_name':'v1.4.0','body':'notes'};commit=Mock();commit.json.return_value={'sha':'c'*40}
+  with patch('app.updates.requests.get',side_effect=[r,commit]) as get:
+   self.assertEqual(latest_release()['revision'],'c'*40);self.assertTrue(get.call_args.args[0].endswith('/commits/v1.4.0'))
+ def test_host_rejects_installed_revision_or_changed_request(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);(root/'app').mkdir();(root/'state').mkdir();(root/'app/version.py').write_text("VERSION='1.4.0'")
+   h=Host(root,root/'state')
+   with patch.object(h,'validate_mounts'),patch.object(h,'installed_revision',return_value='a'*40),patch('updater.host.official',return_value='a'*40),patch.object(h,'run') as run:
+    h.update('v1.4.0','a'*40);self.assertEqual(h.job['state'],'failed');run.assert_not_called()
+    h.update('v1.4.0','b'*40);self.assertEqual(h.job['state'],'failed');run.assert_not_called()

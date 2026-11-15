@@ -27,5 +27,6 @@ TimeoutStopSec=240
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now nvr-monitor-updater.service
+systemctl enable nvr-monitor-updater.service
+systemctl restart nvr-monitor-updater.service
 echo 'Host updater enabled. Only official stable releases can be requested.'

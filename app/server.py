@@ -9,6 +9,7 @@ from .storage import Store, atomic
 from .engine import Engine, validate_camera
 from .updates import Updates
 from .version import VERSION
+from .revision import installed_revision
 
 
 def create_app(data=None, recordings=None, cache=None, start_engine=True):
@@ -85,7 +86,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     def index():return send_file(base/'static/index.html')
 
     @app.get('/api/health')
-    def health():return jsonify(ok=True,version=VERSION)
+    def health():return jsonify(ok=True,version=VERSION,revision=installed_revision())
 
     @app.get('/api/updates')
     def update_status():
@@ -93,7 +94,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
 
     @app.post('/api/updates')
     def install_update():
-        admin_only();return jsonify(updates.queue(request.get_json().get('tag'))),202
+        admin_only();return jsonify(updates.queue(request.get_json().get('tag'),request.get_json().get('revision'))),202
 
     def viewing_preferences():
         return store.get('viewing',{'live_delay':max(0,min(60,int(os.getenv('LIVE_DELAY_SECONDS','30'))))})

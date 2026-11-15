@@ -69,6 +69,13 @@ class Host:
         text=(self.root/'app/version.py').read_text()
         match=re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]",text)
         return match.group(1) if match else '1.4.0'
+    def installed_revision(self):
+        try:
+            cid=self.output(self.compose('ps','-q','monitor'))
+            script="import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/health',timeout=3)).get('revision') or '')"
+            revision=self.output(['docker','exec',cid,'python','-c',script])
+            return revision if re.fullmatch('[0-9a-f]{40}',revision) else None
+        except (subprocess.SubprocessError,OSError):return None
     def validate_mounts(self):
         conf=json.loads(self.output(self.compose('config','--format','json')))
         mounts={v['target']:v for v in conf['services']['monitor']['volumes']}
@@ -92,15 +99,16 @@ class Host:
             if src.is_dir():shutil.copytree(src,dst,symlinks=True)
             elif src.exists():shutil.copy2(src,dst)
         if (self.root/'install.sh').exists():(self.root/'install.sh').chmod(0o755)
-    def healthy(self,expected):
+    def healthy(self,expected,revision=None):
         end=time.monotonic()+150
         while time.monotonic()<end:
             try:
                 cid=self.output(self.compose('ps','-q','monitor'))
                 health=self.output(['docker','inspect','--format','{{.State.Health.Status}}',cid])
                 if health=='healthy':
-                    script="import json,urllib.request;print(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/health',timeout=3))['version'])"
-                    if self.output(['docker','exec',cid,'python','-c',script])==expected:return
+                    script="import json,urllib.request;print(json.dumps(json.load(urllib.request.urlopen('http://127.0.0.1:8080/api/health',timeout=3))))"
+                    result=json.loads(self.output(['docker','exec',cid,'python','-c',script]))
+                    if result.get('version')==expected and (revision is None or result.get('revision')==revision):return
             except (subprocess.SubprocessError,OSError):pass
             time.sleep(3)
         raise RuntimeError('Updated service did not become healthy')
@@ -112,31 +120,35 @@ class Host:
         self.run(['cp','-a',str(backup/'data'),str(self.root/'data')])
         self.run(['docker','tag',self.job['old_image'],self.job['image']])
         self.run(self.compose('up','-d','--no-build','--no-deps','monitor'))
-        self.healthy(self.job['previous']);self.set('rolled_back',finished_at=time.time())
-    def update(self,tag):
+        self.healthy(self.job['previous'],self.job.get('previous_revision'));self.set('rolled_back',finished_at=time.time())
+    def update(self,tag,requested_revision=None):
         stopped=False;prepared=False
         try:
             self.set('building',tag=tag,finished_at=None)
-            if version(tag)<=version(self.installed()):raise ValueError('Downgrade/reinstall refused')
+            if version(tag)<version(self.installed()):raise ValueError('Downgrade refused')
             self.validate_mounts();sha=official(tag)
+            if requested_revision is not None and requested_revision!=sha:raise ValueError('Release changed; check again')
+            previous_revision=self.installed_revision()
+            if version(tag)==version(self.installed()) and sha==previous_revision:raise ValueError('Revision already installed')
             backup=self.root/'backups'/('update-'+time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:8])
             backup.parent.mkdir(mode=0o700,exist_ok=True);backup.parent.chmod(0o700);backup.mkdir(mode=0o700)
             stage=backup/'release';stage.mkdir()
             unpack(fetch('https://codeload.github.com/dkmi/nvr-monitor/tar.gz/'+sha,30*1024*1024),stage)
             text=(stage/'app/version.py').read_text();match=re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]",text)
             if not match or version(match.group(1))!=version(tag):raise ValueError('Release version mismatch')
+            (stage/'app/build.json').write_text(json.dumps({'revision':sha}))
             new_image='nvr-monitor-update:'+sha
             self.run(['docker','build','-t',new_image,str(stage)])
             cid=self.output(self.compose('ps','-q','monitor'))
             image=self.output(['docker','inspect','--format','{{.Config.Image}}',cid]);old=self.output(['docker','inspect','--format','{{.Image}}',cid])
             old_tag='nvr-monitor-rollback:'+uuid.uuid4().hex;self.run(['docker','tag',old,old_tag])
-            self.set('backing_up',backup=str(backup),image=image,old_image=old_tag,previous=self.installed())
+            self.set('backing_up',backup=str(backup),image=image,old_image=old_tag,previous=self.installed(),previous_revision=previous_revision,revision=sha)
             stopped=True;self.run(self.compose('stop','-t','180','monitor'),240)
             self.snapshot(backup);prepared=True
             self.set('installing',prepared=True)
             self.replace_source(stage);self.run(['docker','tag',new_image,image])
             self.run(self.compose('up','-d','--no-build','--no-deps','monitor'))
-            self.set('checking');self.healthy(tag.lstrip('v'))
+            self.set('checking');self.healthy(tag.lstrip('v'),sha)
             self.set('succeeded',finished_at=time.time())
         except Exception as e:
             print('Update failed:',type(e).__name__,str(e),flush=True)
@@ -163,19 +175,20 @@ class Host:
             with os.fdopen(fd,'rb',closefd=False) as f:body=f.read(1025)
             if len(body)>1024:raise ValueError('Request too large')
             request=json.loads(body);version(request.get('tag'))
-            if set(request)!={'tag'}:raise ValueError('Unexpected request fields')
-            return request['tag']
+            if set(request)-{'tag','revision'}:raise ValueError('Unexpected request fields')
+            if 'revision' in request and (not isinstance(request['revision'],str) or not re.fullmatch('[0-9a-f]{40}',request['revision'])):raise ValueError('Invalid revision')
+            return request
         finally:os.close(fd);path.unlink(missing_ok=True)
     def serve(self):
         self.recover();worker=None
         while True:
             self.heartbeat()
             if not worker or not worker.is_alive():
-                try:tag=self.take_request()
-                except Exception as e:print('Request rejected:',type(e).__name__,flush=True);tag=None
-                if tag:
-                    self.job={'state':'queued','tag':tag};self.set('queued')
-                    worker=threading.Thread(target=self.update,args=(tag,),daemon=True);worker.start()
+                try:request=self.take_request()
+                except Exception as e:print('Request rejected:',type(e).__name__,flush=True);request=None
+                if request:
+                    self.job={'state':'queued','tag':request['tag']};self.set('queued')
+                    worker=threading.Thread(target=self.update,args=(request['tag'],request.get('revision')),daemon=True);worker.start()
             time.sleep(3)
 
 if __name__=='__main__':

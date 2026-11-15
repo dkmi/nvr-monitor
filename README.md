@@ -133,9 +133,9 @@ NVR Monitor is released under the [MIT License](LICENSE). Bundled hls.js retains
 
 ## Updates
 
-Administrators can open **Updates** in the sidebar, check the latest stable release in `dkmi/nvr-monitor` on GitHub and install a newer version. Drafts, prereleases, reinstalls and downgrades are rejected. Version checks are cached for one minute. Checking GitHub requires outbound HTTPS from the container and host.
+Administrators can open **Updates** in the sidebar, check the latest stable release in `dkmi/nvr-monitor` on GitHub and install a newer version or a changed commit under the same release tag. Drafts, prereleases, downgrades and an already-installed commit are rejected. The panel shows the installed and latest short commit IDs. Version checks are cached for one minute. Checking GitHub requires outbound HTTPS from the container and host.
 
-The web container has **no Docker socket**. A separate root-owned systemd service on the host consumes a narrow update request containing only an official release tag. It resolves the tag to a GitHub commit and builds that exact source. The new image is built while recording continues; then the service stops gracefully, backs up the SQLite database, encryption key and previous application source/image, and restarts only the monitor service. Camera/user settings and recordings stay in their existing bind mounts. Browser sessions are lost on restart, so sign in again. Recording pauses during the restart/backup/health-check interval. Keep enough free space for both images and the configuration backup.
+The web container has **no Docker socket**. A separate root-owned systemd service on the host consumes a narrow update request containing only an official release tag. It resolves the tag to a GitHub commit, verifies the commit selected in the panel still matches, and builds that exact source. The image embeds the commit identity, and the health check verifies both version and commit. The new image is built while recording continues; then the service stops gracefully, backs up the SQLite database, encryption key and previous application source/image, and restarts only the monitor service. Camera/user settings and recordings stay in their existing bind mounts. Browser sessions are lost on restart, so sign in again. Recording pauses during the restart/backup/health-check interval. Keep enough free space for both images and the configuration backup.
 
 If the new service fails its health/version check, the host restores the previous source, image and database/key automatically. Recordings are never rolled back or deleted. Interrupted updates are recovered on updater restart. Protected backups remain in `backups/update-*` for manual recovery; remove old backups/images yourself when no longer needed.
 
@@ -159,3 +159,19 @@ sudo journalctl -u nvr-monitor-updater --no-pager -n 100
 Detailed build output is stored under the root-only `/var/lib/nvr-monitor-updater` directory. Without the host service (including Docker Desktop), version checking still works and manual `docker compose up -d --build` remains available.
 
 The sidebar can be hidden with **<<<** and restored with **>>>** in the main header. The choice is remembered locally in each browser without restarting streams or recording.
+
+### Same-version release updates
+
+A moved `v1.4.0` tag is detected even though the version remains `1.4.0`: the installed commit is compared with the commit currently referenced by the latest stable release. An installation without recorded build identity is offered one synchronization; after installation the exact commit is recorded and is not offered again. Version downgrades remain blocked.
+
+Clean Git checkouts installed through `install.sh` embed their current commit in `app/build.json`. This generated file is not committed. Source archive installations without Git start with unknown identity until their first verified release update. Rerun `install.sh` after manual source updates to refresh build identity.
+
+Older installations whose checker compared version numbers only need a one-time manual bootstrap of the new checker and host helper. For a Git checkout, preserve `data`, `recordings`, `cache`, `.env` and local Compose settings, fetch the updated release tag and run the installer:
+
+```sh
+git fetch origin tag v1.4.0 --force
+git checkout v1.4.0
+sudo ./install.sh
+```
+
+Commit or back up local tracked-file changes before switching checkouts. For an archive installation, replace the application source with the updated archive without overwriting runtime directories, `.env` or the local Compose configuration, then run `sudo ./install.sh`. The installer refreshes the root-owned helper; installing only the web image leaves an older host helper unable to apply same-version updates.
