@@ -124,3 +124,7 @@ PYTHONPATH=.:tests python tests/test_onvif_recording.py tests/fixtures/motion.mp
 ```
 
 The bundled MP4 fixture contains synthetic test footage. Tests cover authentication, permissions, encryption, migration, recording range requests, viewing delay, ONVIF protocol behavior and fallback. Integration tests exercise pre-event footage, AAC/MP4 export, decoding and clean shutdown with real FFmpeg. Linux amd64 and Chromium have been exercised; compatibility with every browser, camera or audio codec is not guaranteed.
+
+## License
+
+NVR Monitor is released under the [MIT License](LICENSE). Bundled hls.js retains its own [Apache-2.0 license](static/vendor/HLS-LICENSE.txt); other dependencies retain their respective licenses.
