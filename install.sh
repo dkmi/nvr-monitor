@@ -15,8 +15,14 @@ for port in range(8095,8196):
 else:raise SystemExit('No available port in 8095–8195')
 PY
 fi
-mkdir -p data recordings cache
-chown 10001:10001 data recordings cache
-chmod 700 data recordings cache
+mkdir -p data recordings cache updates
+chown 10001:10001 data recordings cache updates
+chmod 700 data recordings cache updates
 docker compose up -d --build
 echo 'Open http://SERVER_IP:PORT and create the first administrator account.'
+
+if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then
+  sh deployment/install-updater.sh "$PWD"
+else
+  echo "Web updates require Linux systemd; manual Docker updates remain available."
+fi

@@ -7,6 +7,8 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from .storage import Store, atomic
 from .engine import Engine, validate_camera
+from .updates import Updates
+from .version import VERSION
 
 
 def create_app(data=None, recordings=None, cache=None, start_engine=True):
@@ -15,6 +17,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     app=Flask(__name__,static_folder=str(base/'static'),static_url_path='/static');app.config['MAX_CONTENT_LENGTH']=65536
     if os.getenv('TRUST_PROXY','false').lower()=='true':app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=1)
     store=Store(data);engine=Engine(cache,recordings,os.getenv('FFMPEG','ffmpeg'),os.getenv('FFPROBE','ffprobe'))
+    updates=Updates(os.getenv('UPDATES_DIR','/updates'))
     sessions={};auth_lock=threading.RLock();write_lock=threading.Lock();attempts=defaultdict(deque)
     setup_file=data/'setup-token'
     if store.users():setup_file.unlink(missing_ok=True)
@@ -82,7 +85,15 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     def index():return send_file(base/'static/index.html')
 
     @app.get('/api/health')
-    def health():return jsonify(ok=True,version='1.4.0')
+    def health():return jsonify(ok=True,version=VERSION)
+
+    @app.get('/api/updates')
+    def update_status():
+        admin_only();return jsonify(updates.status(check=request.args.get('check')=='1'))
+
+    @app.post('/api/updates')
+    def install_update():
+        admin_only();return jsonify(updates.queue(request.get_json().get('tag'))),202
 
     def viewing_preferences():
         return store.get('viewing',{'live_delay':max(0,min(60,int(os.getenv('LIVE_DELAY_SECONDS','30'))))})

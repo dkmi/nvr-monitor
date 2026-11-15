@@ -13,6 +13,8 @@ Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, r
 - Administrator, full-view, selected-camera and recordings-only accounts.
 - SQLite storage with encrypted camera credentials. User passwords are salted hashes.
 - Background recording continues when the browser is closed or the interface is locked.
+- Administrator-only GitHub release checks and host-managed updates with configuration backup and rollback.
+- Collapsible sidebar with a remembered browser preference.
 
 ## Quick start
 
@@ -128,3 +130,32 @@ The bundled MP4 fixture contains synthetic test footage. Tests cover authenticat
 ## License
 
 NVR Monitor is released under the [MIT License](LICENSE). Bundled hls.js retains its own [Apache-2.0 license](static/vendor/HLS-LICENSE.txt); other dependencies retain their respective licenses.
+
+## Updates
+
+Administrators can open **Updates** in the sidebar, check the latest stable release in `dkmi/nvr-monitor` on GitHub and install a newer version. Drafts, prereleases, reinstalls and downgrades are rejected. Version checks are cached for one minute. Checking GitHub requires outbound HTTPS from the container and host.
+
+The web container has **no Docker socket**. A separate root-owned systemd service on the host consumes a narrow update request containing only an official release tag. It resolves the tag to a GitHub commit and builds that exact source. The new image is built while recording continues; then the service stops gracefully, backs up the SQLite database, encryption key and previous application source/image, and restarts only the monitor service. Camera/user settings and recordings stay in their existing bind mounts. Browser sessions are lost on restart, so sign in again. Recording pauses during the restart/backup/health-check interval. Keep enough free space for both images and the configuration backup.
+
+If the new service fails its health/version check, the host restores the previous source, image and database/key automatically. Recordings are never rolled back or deleted. Interrupted updates are recovered on updater restart. Protected backups remain in `backups/update-*` for manual recovery; remove old backups/images yourself when no longer needed.
+
+On a fresh Linux/systemd install, `sudo ./install.sh` also enables the host service. To enable updates on an existing installation, add `./updates:/updates` to the monitor service volumes, then run from the project directory:
+
+```sh
+sudo mkdir -p updates
+sudo chown 10001:10001 updates
+sudo chmod 700 updates
+sudo sh deployment/install-updater.sh "$PWD"
+docker compose up -d --build
+```
+
+The installer deploys a root-owned copy of `updater/host.py` into `/usr/local/lib` and enables `nvr-monitor-updater.service`. It supports one installation per host, Linux with systemd, a project path without whitespace, and standard local bind mounts for `data`, `recordings`, `cache`, `updates`. Custom/NAS mount layouts need manual updates. Existing `compose.yaml` and `.env` are preserved, including port, HTTPS and proxy settings. Future releases requiring Compose or host-updater changes will need a manual host migration. Do not run manual updates concurrently with the host service.
+
+```sh
+sudo systemctl status nvr-monitor-updater
+sudo journalctl -u nvr-monitor-updater --no-pager -n 100
+```
+
+Detailed build output is stored under the root-only `/var/lib/nvr-monitor-updater` directory. Without the host service (including Docker Desktop), version checking still works and manual `docker compose up -d --build` remains available.
+
+The sidebar can be hidden with **<<<** and restored with **>>>** in the main header. The choice is remembered locally in each browser without restarting streams or recording.

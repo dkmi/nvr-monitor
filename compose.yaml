@@ -13,6 +13,7 @@ services:
       - ./data:/data
       - ./recordings:/recordings
       - ./cache:/cache
+      - ./updates:/updates
     stop_grace_period: 180s
     read_only: true
     tmpfs:
