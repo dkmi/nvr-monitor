@@ -40,6 +40,9 @@ def unpack(body,dest):
             if total>100*1024*1024:raise ValueError('Expanded source too large')
             target=dest/rel;target.parent.mkdir(parents=True,exist_ok=True)
             with archive.extractfile(member) as src,target.open('xb') as out:shutil.copyfileobj(src,out)
+    # Source must remain readable under the service's private umask.
+    for path in dest.rglob('*'):
+        path.chmod(0o755 if path.is_dir() else 0o644)
     if not (dest/'Dockerfile').is_file() or not (dest/'app/version.py').is_file():raise ValueError('Incomplete release')
 
 def atomic(path,value,uid=None):
@@ -137,6 +140,7 @@ class Host:
             text=(stage/'app/version.py').read_text();match=re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]",text)
             if not match or version(match.group(1))!=version(tag):raise ValueError('Release version mismatch')
             (stage/'app/build.json').write_text(json.dumps({'revision':sha}))
+            (stage/'app/build.json').chmod(0o644)
             new_image='nvr-monitor-update:'+sha
             self.run(['docker','build','-t',new_image,str(stage)])
             cid=self.output(self.compose('ps','-q','monitor'))

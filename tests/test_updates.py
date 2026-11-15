@@ -45,7 +45,10 @@ class UpdateTests(unittest.TestCase):
   for entries in [[('top/app/../../escape',tarfile.REGTYPE,'x')],[('top/app/link',tarfile.SYMTYPE,'')]]:
    with self.assertRaises(ValueError):unpack(archive(entries),self.root/'staging')
   stage=self.root/'valid';stage.mkdir()
+  old_umask=os.umask(0o077)
+  self.addCleanup(os.umask,old_umask)
   unpack(archive([('top/Dockerfile',tarfile.REGTYPE,'FROM scratch'),('top/app/version.py',tarfile.REGTYPE,"VERSION='1.4.1'"),('top/data/vault.key',tarfile.REGTYPE,'bad'),('top/compose.yaml',tarfile.REGTYPE,'bad'),('top/.env',tarfile.REGTYPE,'bad')]),stage)
+  self.assertEqual((stage/'app/version.py').stat().st_mode & 0o777,0o644);self.assertEqual((stage/'app').stat().st_mode & 0o777,0o755)
   self.assertFalse((stage/'data').exists());self.assertFalse((stage/'compose.yaml').exists());self.assertFalse((stage/'.env').exists())
  def test_request_restrictions(self):
   state=self.root/'state';state.mkdir();h=Host(self.root,state)
