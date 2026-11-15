@@ -2,3 +2,5 @@
 .usersLayout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:24px}.usersLayout form>label{margin-bottom:15px}.usersLayout #newUser{width:100%;margin-bottom:16px}.userCameras{border:1px solid var(--line);padding:6px 14px;border-radius:7px;max-height:250px;overflow:auto}#usersDialog{width:min(900px,96vw)}#signedInAs{margin-top:12px}@media(max-width:650px){.usersLayout{grid-template-columns:1fr}}
 
 #shell.sidebar-collapsed>aside{display:none}#toggleSidebar{flex-shrink:0;font-family:monospace}main>header{gap:14px}main>header>div{flex:1}#updatesDialog{width:min(760px,95vw)}
+
+.update-notice{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:14px;margin:0 0 18px;border:1px solid var(--accent);border-radius:8px;background:#153137}.update-notice>span{flex:1;min-width:220px}
