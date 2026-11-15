@@ -1,0 +1,28 @@
+http:
+  routers:
+    monitor-http:
+      rule: Host(`monitor.example.com`)
+      entryPoints: [web]
+      middlewares: [monitor-https]
+      service: noop@internal
+    monitor-https:
+      rule: Host(`monitor.example.com`)
+      entryPoints: [websecure]
+      service: monitor-web
+      tls:
+        certResolver: letsencrypt
+  middlewares:
+    monitor-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+  services:
+    monitor-web:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://127.0.0.1:8095
+        healthCheck:
+          path: /api/health
+          interval: 15s
+          timeout: 5s

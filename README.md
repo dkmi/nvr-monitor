@@ -1,0 +1,126 @@
+# NVR Monitor
+
+Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, record motion with pre-event footage, and browse MP4 recordings in an integrated Playback view. The interface defaults to **English** and also supports **Bulgarian**.
+
+## Features
+
+- Multi-camera grid, expanded camera view and audio toggle.
+- Native H.264 video passthrough, preserving resolution and frame rate. Incompatible streams fall back to H.264 transcoding; audio is converted to AAC.
+- Camera-side ONVIF motion events or server-side RTSP motion analysis, with optional automatic fallback.
+- Per-camera motion sensitivity/zone for software analysis, prebuffer (0–30 seconds), recording tail, subfolder, age and storage limits.
+- MP4 Playback with camera/date filters, start time, duration, timeline, seeking and downloads.
+- Adjustable viewing buffer (0–60 seconds), independent of the recording prebuffer.
+- Administrator, full-view, selected-camera and recordings-only accounts.
+- SQLite storage with encrypted camera credentials. User passwords are salted hashes.
+- Background recording continues when the browser is closed or the interface is locked.
+
+## Quick start
+
+Requirements: Linux, Docker Engine with the Compose plugin, and network access to your cameras. The installer also uses Python 3.
+
+```sh
+git clone https://github.com/dkmi/nvr-monitor.git
+cd nvr-monitor
+sudo ./install.sh
+```
+
+The installer selects an available port between 8095 and 8195 and writes it to `.env`. Open `http://SERVER_IP:PORT` and create your administrator username and password (at least 12 characters). **There are no bundled accounts, camera settings, recordings or database.** A new database and encryption key are created locally at first startup. Complete initial setup on a trusted network before exposing the service.
+
+To choose a port manually:
+
+```sh
+cp .env.example .env
+# Edit .env before starting the installer.
+sudo ./install.sh
+```
+
+The container runs as UID/GID 10001. The installer creates and sets permissions on `data`, `cache` and `recordings` for that account. For direct Compose use, prepare these directories with the same ownership first.
+
+## Camera compatibility
+
+The current RTSP URL format is `/cam/realmonitor?channel=1&subtype=0`, used by Dahua and compatible cameras. Arbitrary RTSP URL templates, ONVIF stream discovery, PTZ and automatic network discovery are not implemented. ONVIF support currently receives motion events from individual IP cameras on channel 1; it does not configure every camera function.
+
+Add a camera with its host, credentials, RTSP port (normally 554), channel and main/substream selection. A blank password while editing keeps the existing password. Press Escape to leave the expanded view.
+
+For low server load, configure the camera itself for standard 8-bit H.264, a keyframe every 1–2 seconds and Smart Codec disabled. The app displays **H.264 · Direct** when video is copied without transcoding, including MP4 export. H.265 and unsuitable streams are converted to H.264 up to 1280×720 at 15 fps. Observed keyframe gaps over ten seconds trigger persistent conversion fallback in `cache/*.force-transcode`; stop the service and remove the relevant marker after correcting the camera configuration. H.264 can require more bandwidth/storage than H.265.
+
+Audio is converted to AAC for browser compatibility. Cameras without audio receive a realtime-paced silent track. Browser audio needs a user click. Client codec/resolution support still depends on the device/browser.
+
+## Motion recording
+
+Choose **ONVIF** to use camera-side motion detection and avoid an extra video decoder. Enable motion detection and configure its zone/sensitivity in the camera's own interface. Set its ONVIF HTTP port, SOAP version (automatic/1.1/1.2), and optionally separate ONVIF credentials. PullPoint subscriptions support HTTP Digest, WS-Security, clock correction, renewal and unsubscribe. Boolean motion events are supported; tamper and video loss do not count as motion.
+
+Optional RTSP fallback starts software analysis if ONVIF fails and stops it when events recover. Without fallback, video continues but unavailable ONVIF events cannot trigger new recordings.
+
+Choose **RTSP analysis** to use the server-side zone and sensitivity. The detector prefers an available lower-resolution substream, analyzed at 160×90 grayscale / 3 fps. Main and substream must show the same field of view.
+
+Configure recording, prebuffer, tail and retention per camera. The viewing buffer is a separate administrator setting in Live; zero removes intentional delay, while HLS/network delay remains. A buffer cannot compensate for sustained processing slower than realtime.
+
+MP4 files appear after an event/tail ends. Long events split into roughly 60-second pieces. Keyframe boundaries can include extra footage around the requested interval. Recordings and cache are not encrypted. Retention limits are per camera; deleting a camera preserves its archive but stops enforcing that camera's limits. Graceful shutdown waits for active recordings; power loss may lose an unfinished event.
+
+## Accounts
+
+| Role | Live | Playback | Administration |
+| --- | --- | --- | --- |
+| Administrator | All cameras | All cameras | Full |
+| Full access | All cameras | All cameras | No |
+| Limited | Assigned cameras | Assigned cameras | No |
+| Recordings only | No | All or assigned cameras | No |
+
+Permissions are enforced by the server for APIs, HLS and MP4 requests. Account/password changes invalidate that account's sessions. The last active administrator cannot be removed or demoted. Each user can change their own password.
+
+## HTTPS and reverse proxy
+
+For public access, use HTTPS. `deployment/traefik-monitor.yml` is an example dynamic configuration: replace `monitor.example.com`, configure your existing Traefik entrypoints and `letsencrypt` certificate resolver, then mount it through Traefik's file provider. The backend URL assumes Traefik can reach the host loopback address (for example, host networking); adapt it for your Docker network.
+
+Set in `.env`:
+
+```dotenv
+BIND_ADDRESS=127.0.0.1
+WEB_PORT=8095
+COOKIE_SECURE=true
+TRUST_PROXY=true
+```
+
+Then recreate the service. Enable proxy trust only behind a trusted proxy, with direct backend access restricted. The Traefik example does not include certificates, ACME accounts or other services' settings.
+
+## Storage, backup and maintenance
+
+- `data/config.sqlite`: accounts, grants, settings and encrypted camera configuration.
+- `data/vault.key`: AES-256-GCM key for camera configuration. Back up with the database.
+- `recordings`: finalized MP4s and recording metadata.
+- `cache`: bounded HLS/prebuffer files and pending export segments.
+
+User passwords use PBKDF2-SHA256 with 600,000 iterations. Host administrators with the complete data directory can decrypt camera credentials. Do not commit these runtime directories or `.env`.
+
+Stop the service before copying `data`, or use SQLite online backup. Back up `recordings` separately. Do not run two instances against the same directories. For NAS storage, change the recordings bind mount and ensure UID/GID 10001 can write to it.
+
+```sh
+docker compose ps
+docker compose logs --tail=100
+docker compose up -d --build
+docker compose stop
+```
+
+Recover an administrator password locally without deleting camera settings:
+
+```sh
+docker compose exec monitor python -m app.manage
+```
+
+The command prompts for the username and new password. The container has a read-only root filesystem, no Linux capabilities, bounded logs and a graceful shutdown period.
+
+## Development and tests
+
+Python 3.9+ and FFmpeg/ffprobe are needed for local testing; the Docker image uses Python 3.12.
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python -m unittest discover -s tests
+PYTHONPATH=. python tests/test_recording.py tests/fixtures/motion.mp4
+PYTHONPATH=.:tests python tests/test_onvif_recording.py tests/fixtures/motion.mp4
+```
+
+The bundled MP4 fixture contains synthetic test footage. Tests cover authentication, permissions, encryption, migration, recording range requests, viewing delay, ONVIF protocol behavior and fallback. Integration tests exercise pre-event footage, AAC/MP4 export, decoding and clean shutdown with real FFmpeg. Linux amd64 and Chromium have been exercised; compatibility with every browser, camera or audio codec is not guaranteed.

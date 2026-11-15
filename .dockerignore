@@ -1,0 +1,10 @@
+data
+cache
+recordings
+__pycache__
+*.pyc
+.env
+.git
+
+backups
+preview-*.jpg
