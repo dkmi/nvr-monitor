@@ -7,11 +7,15 @@ from updater.host import unpack,Host,version
 
 class UpdateTests(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.queue=self.root/'updates';self.queue.mkdir()
+  self.tmp=tempfile.TemporaryDirectory()
+  self.addCleanup(self.tmp.cleanup)
+  self.root=Path(self.tmp.name);self.queue=self.root/'updates';self.queue.mkdir()
   self.env=patch.dict(os.environ,{'UPDATES_DIR':str(self.queue)});self.env.start()
-  self.app=create_app(self.root/'data',self.root/'recordings',self.root/'cache',start_engine=False);self.c=self.app.test_client()
+  self.addCleanup(self.env.stop)
+  self.app=create_app(self.root/'data',self.root/'recordings',self.root/'cache',start_engine=False)
+  self.addCleanup(self.app.extensions['store'].close)
+  self.c=self.app.test_client()
   self.c.post('/api/setup',json={'username':'admin','password':'synthetic-test-password'});self.csrf=self.c.get('/api/state').json['csrf']
- def tearDown(self):self.env.stop();self.tmp.cleanup()
  def test_admin_only_and_csrf(self):
   self.assertEqual(self.c.post('/api/updates',json={'tag':'v9.0.0'}).status_code,403)
   store=self.app.extensions['store'];store.save_user({'username':'viewer','password':'synthetic-test-password','role':'full'})

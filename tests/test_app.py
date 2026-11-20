@@ -6,9 +6,12 @@ from app.server import create_app
 
 class AppTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
-        self.app=create_app(self.root/'data',self.root/'records',self.root/'cache',start_engine=False);self.client=self.app.test_client();self.csrf=''
-    def tearDown(self):self.tmp.cleanup()
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name)
+        self.app=create_app(self.root/'data',self.root/'records',self.root/'cache',start_engine=False)
+        self.addCleanup(self.app.extensions['store'].close)
+        self.client=self.app.test_client();self.csrf=''
     def post(self,path,value):return self.client.post(path,json=value,headers={'X-CSRF-Token':self.csrf})
     def setup(self):
         r=self.post('/api/setup',{'username':'admin','password':'test-master-password-2026'});self.assertEqual(r.status_code,200);self.csrf=r.json['csrf']

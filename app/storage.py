@@ -31,10 +31,18 @@ class Store:
         self.enc_key = hmac.digest(key, b'dahua-web-encryption-v1', 'sha256')
         self.mac_key = hmac.digest(key, b'dahua-web-authentication-v1', 'sha256')
         self.db = sqlite3.connect(self.root / 'config.sqlite', check_same_thread=False)
-        os.chmod(self.root / 'config.sqlite', 0o600)
-        self.db.execute('CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value BLOB NOT NULL)')
-        self.db.commit()
-        self.init_users()
+        try:
+            os.chmod(self.root / 'config.sqlite', 0o600)
+            self.db.execute('CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, value BLOB NOT NULL)')
+            self.db.commit()
+            self.init_users()
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self):
+        with self.lock:
+            self.db.close()
 
     def seal(self, obj):
         nonce = secrets.token_bytes(12)

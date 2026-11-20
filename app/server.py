@@ -1,5 +1,6 @@
 import hmac, json, math, re, os, secrets, signal, threading, time, uuid
 from collections import defaultdict, deque
+import logging
 from pathlib import Path
 from urllib.parse import urlsplit
 from flask import Flask, request, jsonify, send_file, abort, make_response, g
@@ -282,11 +283,37 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
 
 
 def main():
-    from waitress import serve
-    os.umask(0o077);app=create_app()
+    from waitress.server import create_server
+
+    logging.basicConfig()
+    os.umask(0o077)
+    app = create_app()
+
     def shutdown(*_):
-        app.extensions['engine'].close();os._exit(0)
-    signal.signal(signal.SIGTERM,shutdown);signal.signal(signal.SIGINT,shutdown)
-    serve(app,host='0.0.0.0',port=int(os.getenv('PORT','8080')),threads=16,max_request_body_size=65536,clear_untrusted_proxy_headers=os.getenv('TRUST_PROXY','false').lower()!='true')
+        # Let Waitress stop accepting requests and begin draining its workers.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        raise SystemExit(0)
+
+    try:
+        server = create_server(
+            app, host='0.0.0.0', port=int(os.getenv('PORT','8080')), threads=16,
+            max_request_body_size=65536,
+            clear_untrusted_proxy_headers=os.getenv('TRUST_PROXY','false').lower()!='true',
+        )
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
+        server.print_listen("Serving on http://{}:{}")
+        try:
+            server.run()
+        finally:
+            # Requests can outlast Waitress's default five-second drain.
+            server.task_dispatcher.shutdown(timeout=float('inf'))
+            server.close()
+    finally:
+        try:
+            app.extensions['engine'].close()
+        finally:
+            app.extensions['store'].close()
 
 if __name__=='__main__':main()

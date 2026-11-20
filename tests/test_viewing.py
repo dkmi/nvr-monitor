@@ -4,8 +4,11 @@ from app.server import create_app
 
 class ViewingTests(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.app=create_app(self.root/'d',self.root/'r',self.root/'c',False);self.client=self.app.test_client();r=self.client.post('/api/setup',json={'username':'owner','password':'owner-password-2026'});self.csrf=r.json['csrf']
- def tearDown(self):self.tmp.cleanup()
+  self.tmp=tempfile.TemporaryDirectory()
+  self.addCleanup(self.tmp.cleanup)
+  self.root=Path(self.tmp.name);self.app=create_app(self.root/'d',self.root/'r',self.root/'c',False)
+  self.addCleanup(self.app.extensions['store'].close)
+  self.client=self.app.test_client();r=self.client.post('/api/setup',json={'username':'owner','password':'owner-password-2026'});self.csrf=r.json['csrf']
  def test_delay_zero_and_persistence(self):
   self.assertEqual(self.client.get('/api/preferences').json['live_delay'],30)
   for value in (0,15,60):

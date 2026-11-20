@@ -1,11 +1,16 @@
 import json, tempfile, unittest, uuid
+from contextlib import closing
 from pathlib import Path
 from app.server import create_app
 from app.storage import Store, atomic
 
 class PermissionsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.app=create_app(self.root/'data',self.root/'records',self.root/'cache',False);self.admin=self.app.test_client()
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.app=create_app(self.root/'data',self.root/'records',self.root/'cache',False)
+        self.addCleanup(self.app.extensions['store'].close)
+        self.admin=self.app.test_client()
         r=self.admin.post('/api/setup',json={'username':'owner','password':'owner-password-2026'});self.csrf=r.json['csrf'];self.ids=[]
         for host in ('10.0.0.1','10.0.0.2'):
             r=self.admin.post('/api/cameras',json={'host':host,'username':'camera-user','password':'secret-camera-password'},headers={'X-CSRF-Token':self.csrf});self.ids.append(r.json['id'])
@@ -13,7 +18,6 @@ class PermissionsTest(unittest.TestCase):
         for cid in self.ids:
             rid=uuid.uuid4().hex;folder=self.root/'records'/cid/cid;folder.mkdir(parents=True)
             (folder/(rid+'.mp4')).write_bytes(b'0123456789');atomic(folder/(rid+'.json'),json.dumps({'id':rid,'camera_id':cid,'camera_name':'Camera','start':1000,'duration':10,'bytes':10}).encode());self.clips.append(rid)
-    def tearDown(self):self.tmp.cleanup()
     def add(self,role,all_cameras=False):
         r=self.admin.post('/api/users',json={'username':'test-'+role,'password':'viewer-password-2026','role':role,'all_cameras':all_cameras,'cameras':[self.ids[0]]},headers={'X-CSRF-Token':self.csrf});self.assertEqual(r.status_code,200,r.json)
         client=self.app.test_client();login=client.post('/api/login',json={'username':'test-'+role,'password':'viewer-password-2026'});return client,login.json['csrf'],r.json['user']
@@ -45,8 +49,15 @@ class PermissionsTest(unittest.TestCase):
         r=self.admin.post('/api/users',json={**admin,'role':'limited'},headers={'X-CSRF-Token':self.csrf});self.assertEqual(r.status_code,400)
         self.assertEqual(self.admin.post('/api/setup',json={'username':'another','password':'another-password'}).status_code,409)
     def test_legacy_migration_retains_password_and_cameras(self):
-        root=self.root/'legacy';s=Store(root);s.set_password('Ар0м@old-password');s.put('cameras',[{'id':self.ids[0],'password':'camera-password'}]);s.db.close()
-        migrated=Store(root);self.assertTrue(migrated.check_user('admin','Ар0м@old-password'));self.assertEqual(migrated.cameras()[0]['password'],'camera-password');self.assertEqual(len(migrated.users()),1);migrated.db.close()
-        again=Store(root);self.assertEqual(len(again.users()),1)
+        root = self.root / 'legacy'
+        with closing(Store(root)) as legacy:
+            legacy.set_password('Ар0м@old-password')
+            legacy.put('cameras', [{'id': self.ids[0], 'password': 'camera-password'}])
+        with closing(Store(root)) as migrated:
+            self.assertTrue(migrated.check_user('admin','Ар0м@old-password'))
+            self.assertEqual(migrated.cameras()[0]['password'], 'camera-password')
+            self.assertEqual(len(migrated.users()), 1)
+        with closing(Store(root)) as reopened:
+            self.assertEqual(len(reopened.users()), 1)
 
 if __name__=='__main__':unittest.main()

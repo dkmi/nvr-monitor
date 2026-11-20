@@ -6,9 +6,12 @@ from app.engine import validate_camera
 
 class CameraOrderTests(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory();r=Path(self.tmp.name);self.app=create_app(r/'data',r/'records',r/'cache',False);self.client=self.app.test_client();login=self.client.post('/api/setup',json={'username':'order-admin','password':'synthetic-order-password'});self.csrf=login.json['csrf'];self.store=self.app.extensions['store']
+  self.tmp=tempfile.TemporaryDirectory()
+  self.addCleanup(self.tmp.cleanup)
+  r=Path(self.tmp.name);self.app=create_app(r/'data',r/'records',r/'cache',False)
+  self.addCleanup(self.app.extensions['store'].close)
+  self.client=self.app.test_client();login=self.client.post('/api/setup',json={'username':'order-admin','password':'synthetic-order-password'});self.csrf=login.json['csrf'];self.store=self.app.extensions['store']
   self.cameras=[validate_camera({'name':str(i),'host':'192.0.2.'+str(i+1),'username':'camera-user','password':'synthetic-camera-password','enabled':i!=1,'motion':True,'timelapse':True,'timelapse_interval':17,'prebuffer':9}) for i in range(3)];self.store.put('cameras',self.cameras)
- def tearDown(self):self.tmp.cleanup()
  def post(self,ids):return self.client.post('/api/cameras/order',json={'ids':ids},headers={'X-CSRF-Token':self.csrf})
  def test_edit_keeps_position_and_new_camera_appends(self):
   original=self.cameras[0];edited={**original,'name':'Renamed'};del edited['password'];r=self.client.post('/api/cameras',json=edited,headers={'X-CSRF-Token':self.csrf});self.assertEqual(r.status_code,200)
@@ -17,7 +20,9 @@ class CameraOrderTests(unittest.TestCase):
  def test_reorder_preserves_all_fields_and_does_not_sync_engine(self):
   ids=[c['id'] for c in reversed(self.cameras)]
   with patch('app.server.Engine.sync') as sync:
-   r=Path(self.tmp.name);active=create_app(r/'data',r/'records',r/'cache',True);client=active.test_client();login=client.post('/api/login',json={'username':'order-admin','password':'synthetic-order-password'});sync.reset_mock()
+   r=Path(self.tmp.name);active=create_app(r/'data',r/'records',r/'cache',True)
+   self.addCleanup(active.extensions['store'].close)
+   client=active.test_client();login=client.post('/api/login',json={'username':'order-admin','password':'synthetic-order-password'});sync.reset_mock()
    self.assertEqual(client.post('/api/cameras/order',json={'ids':ids},headers={'X-CSRF-Token':login.json['csrf']}).status_code,200);sync.assert_not_called()
   self.assertEqual(self.store.cameras(),list(reversed(self.cameras)))
   self.assertEqual([c['id'] for c in self.client.get('/api/cameras').json],ids)

@@ -10,13 +10,17 @@ JPEG=b'\xff\xd8'+b'x'*100+b'\xff\xd9'
 def camera(**extra):return validate_camera({'name':'Photo camera','host':'127.0.0.1','username':'snapshot-user','password':'synthetic-password',**extra})
 
 class PhotoTests(unittest.TestCase):
- def setUp(self):self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
- def tearDown(self):self.tmp.cleanup()
+ def setUp(self):
+  self.tmp=tempfile.TemporaryDirectory()
+  self.addCleanup(self.tmp.cleanup)
+  self.root=Path(self.tmp.name)
  def test_defaults_validation_and_old_client_preservation(self):
   original=camera(motion=True,prebuffer=7);self.assertFalse(original['timelapse']);self.assertEqual(original['prebuffer'],7)
   for key,value in [('timelapse_interval',1),('timelapse_interval',3601),('timelapse_max_days',0),('timelapse_max_mb',0)]:
    with self.assertRaises(ValueError):camera(**{key:value})
-  app=create_app(self.root/'data',self.root/'records',self.root/'cache',False);c=app.test_client();r=c.post('/api/setup',json={'username':'admin','password':'synthetic-photo-password'});csrf=r.json['csrf']
+  app=create_app(self.root/'data',self.root/'records',self.root/'cache',False)
+  self.addCleanup(app.extensions['store'].close)
+  c=app.test_client();r=c.post('/api/setup',json={'username':'admin','password':'synthetic-photo-password'});csrf=r.json['csrf']
   original=camera(timelapse=True,timelapse_interval=17,timelapse_max_days=9,timelapse_max_mb=23);app.extensions['store'].put('cameras',[original])
   old_client={k:v for k,v in original.items() if not k.startswith('timelapse') and k not in ('password','onvif_password')};old_client['name']='Renamed'
   r=c.post('/api/cameras',json=old_client,headers={'X-CSRF-Token':csrf});self.assertEqual(r.status_code,200)
@@ -50,7 +54,9 @@ class PhotoTests(unittest.TestCase):
   try:self.assertEqual(camera_jpeg(camera(onvif_port=server.server_port)),JPEG)
   finally:server.shutdown();server.server_close();thread.join()
  def test_photo_acl_dates_pagination_download_and_no_video_leak(self):
-  app=create_app(self.root/'data',self.root/'records',self.root/'cache',False);admin=app.test_client();r=admin.post('/api/setup',json={'username':'admin','password':'synthetic-photo-password'});store=app.extensions['store'];cams=[camera(),camera()];store.put('cameras',cams)
+  app=create_app(self.root/'data',self.root/'records',self.root/'cache',False)
+  self.addCleanup(app.extensions['store'].close)
+  admin=app.test_client();r=admin.post('/api/setup',json={'username':'admin','password':'synthetic-photo-password'});store=app.extensions['store'];cams=[camera(),camera()];store.put('cameras',cams)
   now=time.time();metas=[]
   for index,c in enumerate(cams):
    archive=PhotoArchive(self.root/'records',c)
