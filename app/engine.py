@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import quote
 from .storage import atomic
 from .onvif import Events
+from .timelapse import Snapshotter
 
 WIDTH, HEIGHT, FPS = 160, 90, 3
 
@@ -15,7 +16,7 @@ def validate_camera(value):
     host = str(c.get('host','')).strip()
     if not host or len(host)>253 or not re.fullmatch(r'[A-Za-z0-9.:-]+',host): raise ValueError('Invalid host')
     c['host'] = host
-    for key, default, lo, hi in [('onvif_port',80,1,65535),('port',554,1,65535),('channel',1,1,64),('subtype',0,0,1),('sensitivity',55,1,100),('prebuffer',5,0,30),('tail',10,5,300),('max_days',30,1,3650),('max_gb',20,1,10000)]:
+    for key, default, lo, hi in [('timelapse_interval',10,2,3600),('timelapse_max_days',30,1,3650),('timelapse_max_mb',1024,1,1000000),('onvif_port',80,1,65535),('port',554,1,65535),('channel',1,1,64),('subtype',0,0,1),('sensitivity',55,1,100),('prebuffer',5,0,30),('tail',10,5,300),('max_days',30,1,3650),('max_gb',20,1,10000)]:
         n = int(c.get(key,default))
         if not lo <= n <= hi: raise ValueError('Invalid '+key)
         c[key] = n
@@ -23,6 +24,7 @@ def validate_camera(value):
         c[key] = str(c.get(key,''))
         if len(c[key])>512: raise ValueError('Credential too long')
     c['enabled'] = bool(c.get('enabled',True)); c['motion'] = bool(c.get('motion',False))
+    c['timelapse']=bool(c.get('timelapse',False))
     c['folder'] = str(c.get('folder','')).strip()
     if c['folder'] and not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',c['folder']): raise ValueError('Folder: letters, digits, underscore or dash only')
     zone = c.get('zone',[0,0,1,1])
@@ -35,7 +37,7 @@ def validate_camera(value):
     if c['motion_source'] not in ('rtsp','onvif') or c['onvif_soap'] not in ('auto','1.1','1.2'):raise ValueError('Invalid ONVIF mode')
     c['onvif_fallback']=bool(c.get('onvif_fallback',True))
     c['onvif_use_camera_credentials']=bool(c.get('onvif_use_camera_credentials',True))
-    return {k:c[k] for k in ['id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
+    return {k:c[k] for k in ['timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb','id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
 
 
 def input_args(camera):
@@ -67,6 +69,7 @@ class CameraWorker(threading.Thread):
         self.onvif=None;self.detection_mode='disabled';self.detector_retry=0;self.detector_warmup=0
         self.quit=threading.Event();self.producer=None;self.detector=None;self.frames=queue.Queue(maxsize=2);self.status='connecting';self.error=None
         self.source_video={}
+        self.photos=Snapshotter(camera,recordings,ffmpeg,synthetic=source is not None)
         self.force_transcode=(Path(cache)/(camera['id']+'.force-transcode')).exists();self.video_copy=False;self.event=None;self.segments={};self.session=None;self.latest_frame=0;self.active_path=None
         self.exports=queue.Queue(maxsize=8);self.export_thread=threading.Thread(target=self.export_loop,daemon=True);self.export_thread.start()
 
@@ -75,7 +78,7 @@ class CameraWorker(threading.Thread):
 
     def start_stream(self):
         self.session=self.cache/uuid.uuid4().hex;self.session.mkdir(parents=True,mode=0o700)
-        if self.camera['motion'] and self.camera.get('motion_source','rtsp')=='onvif':
+        if (self.camera['motion'] or self.camera.get('timelapse',False)) and self.camera.get('motion_source','rtsp')=='onvif':
             self.onvif=Events(self.camera);self.onvif.start()
         args=self.source if self.source else input_args(self.camera)
         # Probe presence of audio; provide silent AAC for cameras with no microphone.
@@ -113,7 +116,7 @@ class CameraWorker(threading.Thread):
         threading.Thread(target=self.read_frames,args=(self.detector,),daemon=True).start()
 
     def reconcile_detection(self):
-        if not self.camera['motion']:
+        if not (self.camera['motion'] or self.camera.get('timelapse',False)):
             self.detection_mode='disabled';return
         state=self.onvif.snapshot() if self.onvif else None
         software=state is None or (not state['connected'] and self.camera.get('onvif_fallback',True))
@@ -246,20 +249,26 @@ class CameraWorker(threading.Thread):
                     self.reconcile_detection()
                     if self.detector and (self.detector.poll() is not None or time.monotonic()-self.latest_frame>20):
                         stop_process(self.detector);self.detector=None;self.detector_retry=time.monotonic()+5;previous=None;self.error='motion_analysis_failed'
-                    now=time.time()
+                    now=time.time();motion_active=False
                     try:
                         frame=self.frames.get(timeout=.2);self.latest_frame=time.monotonic()
-                        if self.camera['motion'] and self.detector is not None and time.monotonic()>self.detector_warmup and detect(previous,frame,self.camera['zone'],self.camera['sensitivity']) and (self.session/'init.mp4').exists():self.trigger(now)
+                        if self.detector is not None and time.monotonic()>self.detector_warmup and detect(previous,frame,self.camera['zone'],self.camera['sensitivity']):motion_active=True
                         previous=frame
                     except queue.Empty:pass
-                    if self.onvif and self.detection_mode=='onvif' and self.onvif.snapshot()['active'] and (self.session/'init.mp4').exists():self.trigger(now)
+                    if self.onvif and self.detection_mode=='onvif' and self.onvif.snapshot()['active']:motion_active=True
                     self.scan_segments()
+                    if motion_active:
+                        if self.camera['motion'] and (self.session/'init.mp4').exists():self.trigger(now)
+                        self.photos.schedule(self.session,self.segments)
                     if self.segments:self.error=None
                     if self.detection_mode=='onvif_connecting':self.error='onvif_unavailable'
                     if self.event and (now>self.event['until']+3 or now-self.event['began']>=60):self.finish_event()
-                    if not self.event:self.status=('watching' if self.camera['motion'] else 'live') if self.segments else 'connecting'
+                    if not self.event:self.status=('watching' if self.camera['motion'] or self.camera.get('timelapse',False) else 'live') if self.segments else 'connecting'
                     if self.detection_mode=='onvif_connecting' and not self.event:self.status='onvif_offline'
-                    if now-last_prune>60:self.prune();last_prune=now
+                    if now-last_prune>60:
+                        self.prune();last_prune=now
+                        try:self.photos.archive.prune()
+                        except OSError:self.photos.error='snapshot_storage_failed'
             except Exception:self.error='connection_failed';self.status='offline'
             finally:
                 stop_process(self.producer);stop_process(self.detector);self.detector=None
@@ -269,10 +278,12 @@ class CameraWorker(threading.Thread):
                     try:self.scan_segments()
                     except Exception:pass
                 self.finish_event()
+                if self.photos.thread:self.photos.jobs.join()
                 if self.session:shutil.rmtree(self.session,ignore_errors=True)
                 self.segments={}
             if not self.quit.is_set():
                 self.status='offline';self.quit.wait(5)
+        self.photos.close()
         self.exports.join();self.exports.put(None);self.export_thread.join(timeout=95)
         shutil.rmtree(self.cache,ignore_errors=True)
 

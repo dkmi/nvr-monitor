@@ -1,4 +1,4 @@
-import hmac, json, os, secrets, signal, threading, time, uuid
+import hmac, json, math, re, os, secrets, signal, threading, time, uuid
 from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -10,6 +10,7 @@ from .engine import Engine, validate_camera
 from .updates import Updates
 from .version import VERSION
 from .revision import installed_revision
+from .timelapse import photo_index, PHOTO_ID
 
 
 def create_app(data=None, recordings=None, cache=None, start_engine=True):
@@ -178,7 +179,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if not can_camera(c['id']):continue
             w=engine.workers.get(c['id']);listener=w.onvif if w else None
             visible={k:v for k,v in c.items() if k not in ('password','onvif_password')} if g.user['role']=='admin' else {k:c[k] for k in ('id','name','enabled')}
-            out.append({**visible,'has_password':bool(c['password']) if g.user['role']=='admin' else False,'has_onvif_password':bool(c.get('onvif_password')) if g.user['role']=='admin' else False,'detection_mode':w.detection_mode if w else 'disabled','video_mode':('copy' if w.video_copy else 'transcode') if w else 'disabled','source_video':w.source_video if w else {},'onvif_status':listener.snapshot()['status'] if listener else None,'status':w.status if w else 'disabled','error':w.error if w else None})
+            out.append({**visible,'has_password':bool(c['password']) if g.user['role']=='admin' else False,'has_onvif_password':bool(c.get('onvif_password')) if g.user['role']=='admin' else False,'detection_mode':w.detection_mode if w else 'disabled','video_mode':('copy' if w.video_copy else 'transcode') if w else 'disabled','source_video':w.source_video if w else {},'onvif_status':listener.snapshot()['status'] if listener else None,'status':w.status if w else 'disabled','error':w.error if w else None,'photo_error':w.photos.error if w else None,'last_photo':w.photos.last_saved if w else None})
         return jsonify(out)
 
     @app.post('/api/cameras')
@@ -189,6 +190,9 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             cameras=store.cameras();old=next((c for c in cameras if c['id']==value.get('id')),None)
             if old and 'password' not in value:value['password']=old['password']
             if old and 'onvif_password' not in value:value['onvif_password']=old.get('onvif_password','')
+            if old:
+                for key in ('timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb'):
+                    if key not in value and key in old:value[key]=old[key]
             camera=validate_camera(value)
             if not old and len(cameras)>=32:abort(400)
             updated=[c for c in cameras if c['id']!=camera['id']]+[camera]
@@ -213,6 +217,35 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
         path=w.session/filename
         if not path.is_file():abort(404)
         return send_file(path,mimetype='application/vnd.apple.mpegurl' if filename.endswith('m3u8') else 'video/mp4',conditional=True)
+
+    @app.get('/api/timelapse')
+    def photos():
+        camera_id=request.args.get('camera')
+        if camera_id:
+            uuid.UUID(camera_id)
+            if not can_camera(camera_id):abort(403)
+        start=float(request.args.get('from',time.time()-86400));end=float(request.args.get('to',time.time()+1))
+        limit=int(request.args.get('limit',100));before=request.args.get('before')
+        if not all(math.isfinite(v) and 0<=v<=253402214400 for v in (start,end)) or not 0<end-start<=3*86400 or not 1<=limit<=100:abort(400)
+        if before and not PHOTO_ID.fullmatch(before):abort(400)
+        rows=[]
+        for m in photo_index(recordings,start,end,camera_id):
+            if not can_camera(m['camera_id']) or (before and m['id']>=before):continue
+            rows.append(m)
+            if len(rows)>limit:break
+        more=len(rows)>limit;rows=rows[:limit]
+        return jsonify(photos=rows,next_cursor=rows[-1]['id'] if more else None)
+
+    @app.get('/recordings/timelapse/<camera_id>/<day>/<photo_id>.jpg')
+    def photo(camera_id,day,photo_id):
+        uuid.UUID(camera_id)
+        if not can_camera(camera_id):abort(403)
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',day) or not PHOTO_ID.fullmatch(photo_id):abort(404)
+        thumb=request.args.get('thumb')=='1' and request.args.get('download')!='1'
+        folder=recordings/'timelapse'/camera_id/day;path=folder/(photo_id+('.thumb.jpg' if thumb else '.jpg'))
+        if not path.is_file() or not (folder/(photo_id+'.json')).is_file():abort(404)
+        try:return send_file(path,mimetype='image/jpeg',conditional=True,as_attachment=request.args.get('download')=='1',download_name=day+'_'+photo_id+'.jpg')
+        except FileNotFoundError:abort(404)
 
     def clip_index():
         for p in recordings.glob('*/*/*.json'):

@@ -4,3 +4,6 @@
 #shell.sidebar-collapsed>aside{display:none}#toggleSidebar{flex-shrink:0;font-family:monospace}main>header{gap:14px}main>header>div{flex:1}#updatesDialog{width:min(760px,95vw)}
 
 .update-notice{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:14px;margin:0 0 18px;border:1px solid var(--accent);border-radius:8px;background:#153137}.update-notice>span{flex:1;min-width:220px}
+
+.photo-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;margin:18px 0}.photo-card{display:flex;flex-direction:column;gap:8px;text-align:left;overflow:hidden;padding:10px}.photo-card img{width:100%;aspect-ratio:16/9;object-fit:contain;background:#080d14;border-radius:5px}#photoDialog{width:min(1200px,96vw)}#photoFull{width:100%;max-height:72vh;object-fit:contain;background:#080d14}#photoDialog footer{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+aside nav{flex-direction:column;gap:6px}aside nav button{width:100%;text-align:left}

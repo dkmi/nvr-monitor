@@ -9,6 +9,7 @@ Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, r
 - Camera-side ONVIF motion events or server-side RTSP motion analysis, with optional automatic fallback.
 - Per-camera motion sensitivity/zone for software analysis, prebuffer (0–30 seconds), recording tail, subfolder, age and storage limits.
 - MP4 Playback with camera/date filters, start time, duration, timeline, seeking and downloads.
+- Optional per-camera motion photos with interval, separate retention and a camera/date gallery.
 - Adjustable viewing buffer (0–60 seconds), independent of the recording prebuffer.
 - Administrator, full-view, selected-camera and recordings-only accounts.
 - SQLite storage with encrypted camera credentials. User passwords are salted hashes.
@@ -175,3 +176,22 @@ sudo ./install.sh
 ```
 
 Commit or back up local tracked-file changes before switching checkouts. For an archive installation, replace the application source with the updated archive without overwriting runtime directories, `.env` or the local Compose configuration, then run `sudo ./install.sh`. The installer refreshes the root-owned helper; installing only the web image leaves an older host helper unable to apply same-version updates.
+
+## Motion photos / timelapse archive
+
+In camera settings, enable **Save photos during motion** and choose an interval (2–3600 seconds, default 10), retention age (default 30 days) and storage limit (default 1024 MB) for that camera. This is independent of **MP4 motion recording**: either or both can be enabled. Existing camera settings are preserved and photos are disabled by default. The selected ONVIF/RTSP detector is shared between the two features, including software fallback; no second motion detector is created.
+
+When motion is active, the app requests a JPEG from the camera's snapshot endpoint using the camera credentials and configured ONVIF HTTP port. For compatible cameras this avoids a video decoder for the full-resolution photo. If that endpoint is unavailable, the app extracts a keyframe from its newest completed HLS segment instead; that fallback can show footage a few seconds before the trigger. A small thumbnail is generated for the gallery. Capture jobs are bounded to one per camera, do not block the video worker, and skip busy intervals rather than build an unbounded backlog. The interval is a minimum between requests, not a promise of exact capture cadence when a camera is slow.
+
+Files are stored under `recordings/timelapse/<camera UUID>/<server-local YYYY-MM-DD>/`, with JPEGs, thumbnails and metadata. Per-camera age and total storage limits include thumbnails and metadata, and delete the oldest photos first without touching MP4 recordings or another camera's photos. Retention runs while that camera is enabled, even if new photo capture is off. Disabling/deleting the camera preserves its archive but stops applying its automatic retention, as with video archives. Back up this subtree with the recordings volume; photos are not encrypted.
+
+Open **Motion photos** to filter by camera and browser-local date, browse thumbnails, open full images, move between images and download JPEGs. Load more fetches the next page (100 photos). Archive permissions match Playback: administrators/full users see all, limited users see assigned cameras, and recordings-only users can browse all or assigned camera photos but cannot watch live video.
+
+Additional checks (real FFmpeg and optional Playwright/Chromium):
+
+```sh
+python -m unittest discover -s tests
+PYTHONPATH=.:tests python tests/check_timelapse_recording.py tests/fixtures/motion.mp4
+PYTHONPATH=.:tests python tests/check_timelapse_recording.py tests/fixtures/motion.mp4 --photos-only
+python tests/check_timelapse_ui.py
+```
