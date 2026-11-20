@@ -195,10 +195,21 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
                     if key not in value and key in old:value[key]=old[key]
             camera=validate_camera(value)
             if not old and len(cameras)>=32:abort(400)
-            updated=[c for c in cameras if c['id']!=camera['id']]+[camera]
+            updated=[camera if c['id']==camera['id'] else c for c in cameras] if old else cameras+[camera]
             store.put('cameras',updated)
             if start_engine:engine.sync(updated)
         return jsonify(ok=True,id=camera['id'])
+
+    @app.post('/api/cameras/order')
+    def camera_order():
+        admin_only();ids=request.get_json().get('ids')
+        if not isinstance(ids,list) or not all(isinstance(i,str) for i in ids) or len(ids)!=len(set(ids)):abort(400)
+        with write_lock:
+            current=store.cameras();by_id={c['id']:c for c in current}
+            if set(ids)!=set(by_id):abort(409)
+            if ids!=[c['id'] for c in current]:store.put('cameras',[by_id[i] for i in ids])
+        # A visual-order change must not stop producers, detectors or exports.
+        return jsonify(ok=True,ids=ids)
 
     @app.post('/api/cameras/<camera_id>/delete')
     def delete_camera(camera_id):

@@ -195,3 +195,11 @@ PYTHONPATH=.:tests python tests/check_timelapse_recording.py tests/fixtures/moti
 PYTHONPATH=.:tests python tests/check_timelapse_recording.py tests/fixtures/motion.mp4 --photos-only
 python tests/check_timelapse_ui.py
 ```
+
+## Camera order
+
+An administrator can drag the dotted handle in a Live camera tile or sidebar row onto another camera to move it to that position. Alt + arrow keys on a focused handle also move it one slot. The order is saved in the encrypted camera configuration and is shared across browsers/users; users with selected-camera access see the same relative order for their permitted cameras. New cameras are appended, while editing camera settings preserves the current slot. Existing order is kept on upgrade.
+
+Reordering changes only the stored list order and the visual positions of existing Live tiles. It does not restart camera workers, video players, motion detection, photo capture or recording. Other open clients pick up the saved order on the normal refresh (about five seconds). A stale reorder request after a camera was added/deleted is rejected rather than losing configuration.
+
+Browser check: `python tests/check_camera_order_ui.py` (Playwright/Chromium required).
