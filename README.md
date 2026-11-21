@@ -50,9 +50,18 @@ The container runs as UID/GID 10001. The installer creates and sets permissions 
 
 ## Camera compatibility
 
-The current RTSP URL format is `/cam/realmonitor?channel=1&subtype=0`, used by Dahua and compatible cameras. Arbitrary RTSP URL templates, ONVIF stream discovery, PTZ and automatic network discovery are not implemented. ONVIF support currently receives motion events from individual IP cameras on channel 1; it does not configure every camera function.
+In **Add camera**, select the manufacturer or **Custom (full RTSP URL)**. Existing cameras keep the Dahua-compatible settings by default.
 
-Add a camera with its host, credentials, RTSP port (normally 554), channel and main/substream selection. A blank password while editing keeps the existing password. Press Escape to leave the expanded view.
+| Preset | Main stream, channel 1 | Substream, channel 1 |
+| --- | --- | --- |
+| [Dahua / compatible](https://material.dahuasecurity.com/uploads/cpq/DOR/PUM0003103/Dahua_Network_Speed_Dome___PTZ_Camera_Web_3.0_User_s_Manual_V2.0.2.pdf) | `/cam/realmonitor?channel=1&subtype=0` | `/cam/realmonitor?channel=1&subtype=1` |
+| [Hikvision](https://supportusa.hikvision.com/support/solutions/articles/17000129022-do-you-have-an-example-showing-the-format-for-getting-a-rtsp-stream-from-a-camera-) | `/Streaming/Channels/101` | `/Streaming/Channels/102` |
+| [Reolink](https://support.reolink.com/articles/900000630706-Introduction-to-RTSP/) | `/Preview_01_main` | `/Preview_01_sub` |
+| [TP-Link VIGI](https://www.tp-link.com/us/support/faq/4201/) | `/stream1` | `/stream2` |
+
+For a preset, enter the host, credentials and RTSP port, then select the channel (where applicable) and stream. Use **Custom** if a model or firmware uses a different format. Paste the full `rtsp://` address, including any required credentials, and percent-encode reserved characters in those credentials. The custom URL is encrypted at rest and is never returned by the camera API. Leave the URL blank when editing to keep the saved value. Preset passwords can also be left blank when editing.
+
+Custom feeds use the selected address for video, audio, recording and RTSP motion analysis. Motion photos for Custom and non-Dahua presets come from the video buffer. With Custom, ONVIF uses the hostname in the URL and can reuse its credentials or use separate ONVIF credentials. ONVIF stream discovery, PTZ and automatic network discovery are not implemented.
 
 For low server load, configure the camera itself for standard 8-bit H.264, a keyframe every 1–2 seconds and Smart Codec disabled. The app displays **H.264 · Direct** when video is copied without transcoding, including MP4 export. H.265 and unsuitable streams are converted to H.264 up to 1280×720 at 15 fps. Observed keyframe gaps over ten seconds trigger persistent conversion fallback in `cache/*.force-transcode`; stop the service and remove the relevant marker after correcting the camera configuration. H.264 can require more bandwidth/storage than H.265.
 

@@ -1,6 +1,6 @@
 """ONVIF PullPoint events; bounded HTTP, WS-Security, renewal and clean unsubscribe."""
 import base64,copy,datetime,hashlib,secrets,socket,threading,time,uuid
-from urllib.parse import urljoin,urlsplit
+from urllib.parse import unquote,urljoin,urlsplit
 import xml.etree.ElementTree as ET
 from defusedxml.ElementTree import fromstring
 import requests
@@ -53,8 +53,13 @@ class Client:
         self.camera=camera;host=camera['host'];host='['+host+']' if ':' in host else host
         self.device=f"http://{host}:{camera.get('onvif_port',80)}/onvif/device_service"
         reuse=camera.get('onvif_use_camera_credentials',True)
-        self.username=camera['username'] if reuse else camera.get('onvif_username','')
-        self.password=camera['password'] if reuse else camera.get('onvif_password','')
+        if reuse and camera.get('rtsp_url'):
+            stream = urlsplit(camera['rtsp_url'])
+            self.username = unquote(stream.username or '')
+            self.password = unquote(stream.password or '')
+        else:
+            self.username=camera['username'] if reuse else camera.get('onvif_username','')
+            self.password=camera['password'] if reuse else camera.get('onvif_password','')
         self.http=requests.Session();self.http.trust_env=False
         self.http.auth=HTTPDigestAuth(self.username,self.password)
         self.version=camera.get('onvif_soap','auto');self.offset=0;self.subscription=None;self.references=[]

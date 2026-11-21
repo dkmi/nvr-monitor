@@ -112,7 +112,8 @@ def photo_index(recordings,start,end,camera=None):
 
 class Snapshotter:
     def __init__(self,camera,recordings,ffmpeg='ffmpeg',synthetic=False):
-        self.camera=camera;self.archive=PhotoArchive(recordings,camera);self.ffmpeg=ffmpeg;self.synthetic=synthetic
+        self.camera=camera;self.archive=PhotoArchive(recordings,camera);self.ffmpeg=ffmpeg
+        self.direct_snapshot = not synthetic and not camera.get('rtsp_url') and camera.get('rtsp_preset', 'dahua') == 'dahua'
         self.jobs=queue.Queue(maxsize=1);self.thread=None;self.next_due=0;self.busy=False;self.lock=threading.Lock()
         self.http_retry=0;self.error=None;self.last_saved=None
     def schedule(self,session,segments):
@@ -153,7 +154,7 @@ class Snapshotter:
             if stage is False:self.jobs.task_done();return
             try:
                 jpeg=None;method='stream'
-                if not self.synthetic and time.monotonic()>=self.http_retry:
+                if self.direct_snapshot and time.monotonic()>=self.http_retry:
                     try:jpeg=camera_jpeg(self.camera);method='camera'
                     except Exception:self.http_retry=time.monotonic()+300
                 if jpeg is None:jpeg=self.fallback(stage)

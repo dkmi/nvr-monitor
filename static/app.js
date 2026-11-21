@@ -46,11 +46,38 @@ function renderGrid(){players.forEach(p=>p.destroy());players.clear();$('grid').
 function updateTileLabels(){document.querySelectorAll('.tile').forEach(tile=>{const c=cameras.find(c=>c.id===tile.dataset.id);if(c){tile.querySelector('.liveStatus').textContent=t(c.enabled&&tile.querySelector('video').readyState<2&&c.status!=='offline'?'buffering':c.status)+(detectionLabel(c)?' · '+detectionLabel(c):'')+(videoLabel(c)?' · '+videoLabel(c):'');tile.querySelector('.liveStatus').classList.toggle('recording',c.status==='recording');tile.querySelector('.sound').textContent=t(tile.querySelector('video').muted?'soundOn':'soundOff');}});}
 function switchMode(value){if(value==='live'&&me?.role==='playback')value='playback';mode=value;for(const [name,view,tab]of [['live','liveView','liveTab'],['playback','playView','playTab'],['photos','photosView','photosTab']]){$(view).hidden=mode!==name;$(tab).classList.toggle('active',mode===name);}$('viewTitle').textContent=t(mode==='photos'?'photos':mode==='live'?'live':'playback');if(mode!=='live'){players.forEach(p=>p.destroy());players.clear();$('playPlayer').pause();if(mode==='playback')loadClips().catch(e=>toast(e.message));else loadPhotos().catch(e=>toast(e.message));}else{$('playPlayer').pause();renderGrid();}}
 $('liveTab').onclick=()=>switchMode('live');$('playTab').onclick=()=>switchMode('playback');$('photosTab').onclick=()=>switchMode('photos');$('layout').onchange=()=>{$('grid').style.gridTemplateColumns=`repeat(${$('layout').value}, minmax(0,1fr))`;};
+Object.assign(dict.en,{
+ streamSource:'Camera manufacturer or stream type',streamDahua:'Dahua / compatible',streamCustom:'Custom (full RTSP URL)',
+ rtspURL:'RTSP URL',rtspURLHelp:'Include the username and password if required. Encode special characters in the credentials.',
+ keepRTSPURL:'Leave blank to keep the saved URL'
+});
+Object.assign(dict.bg,{
+ streamSource:'Производител или вид на потока',streamDahua:'Dahua / съвместими',streamCustom:'Ръчно (пълен RTSP URL)',
+ rtspURL:'RTSP адрес',rtspURLHelp:'Включи потребител и парола, ако са нужни. Кодирай специалните знаци в данните за вход.',
+ keepRTSPURL:'Остави празно, за да запазиш текущия адрес'
+});
 const form=$('cameraForm'),field=name=>form.elements.namedItem(name);
-function editCamera(c=null){if(me?.role!=='admin')return;editing=c;form.reset();$('formError').textContent='';for(const [key,value]of Object.entries(c||{})){const el=field(key);if(el&&!['password','onvif_password'].includes(key)){if(el.type==='checkbox')el.checked=value;else el.value=value;}}field('username').value=c?.username||'admin';field('password').value='';field('password').placeholder=c?t('leavePassword'):'';field('password').required=!c;field('onvif_password').value='';field('onvif_password').placeholder=c?.has_onvif_password?t('leavePassword'):'';motionMethodChanged();const z=c?.zone||[0,0,1,1];['zx','zy','zw','zh'].forEach((k,i)=>field(k).value=Math.round(z[i]*100));$('sensValue').value=field('sensitivity').value;$('deleteCamera').hidden=!c;$('cameraDialog').showModal();drawZone();if(zonePlayer)zonePlayer.destroy();zonePlayer=c?.enabled?attach($('zoneVideo'),c.id):null;}
-$('addCamera').onclick=()=>editCamera();$('emptyAdd').onclick=()=>editCamera();$('closeCamera').onclick=()=>$('cameraDialog').close();$('cameraDialog').addEventListener('close',()=>{if(zonePlayer)zonePlayer.destroy();zonePlayer=null;});
+function streamSourceChanged(){
+ const source=field('stream_source').value;
+ for(const label of form.querySelectorAll('[data-stream-fields]')){
+  const active=(source==='custom'?label.dataset.streamFields==='custom':label.dataset.streamFields==='preset')
+   && (source!=='tp_link'||label.id!=='streamChannel');
+  label.hidden=!active;
+  label.querySelector('input,select').disabled=!active;
+ }
+ field('rtsp_url').required=source==='custom'&&!editing?.has_rtsp_url;
+ field('password').required=source!=='custom'&&!editing;
+}
+field('stream_source').onchange=streamSourceChanged;
+
+function editCamera(c=null){if(me?.role!=='admin')return;editing=c;form.reset();$('formError').textContent='';for(const [key,value]of Object.entries(c||{})){const el=field(key);if(el&&!['password','onvif_password','rtsp_url'].includes(key)){if(el.type==='checkbox')el.checked=value;else el.value=value;}}field('username').value=c?.username||'admin';field('password').value='';field('password').placeholder=c?t('leavePassword'):'';field('stream_source').value=c?.has_rtsp_url?'custom':(c?.rtsp_preset||'dahua');field('rtsp_url').placeholder=c?.has_rtsp_url?t('keepRTSPURL'):'rtsp://user:password@192.0.2.20:554/stream1';streamSourceChanged();field('onvif_password').value='';field('onvif_password').placeholder=c?.has_onvif_password?t('leavePassword'):'';motionMethodChanged();const z=c?.zone||[0,0,1,1];['zx','zy','zw','zh'].forEach((k,i)=>field(k).value=Math.round(z[i]*100));$('sensValue').value=field('sensitivity').value;$('deleteCamera').hidden=!c;$('cameraDialog').showModal();drawZone();if(zonePlayer)zonePlayer.destroy();zonePlayer=c?.enabled?attach($('zoneVideo'),c.id):null;}
+$('addCamera').onclick=()=>editCamera();$('emptyAdd').onclick=()=>editCamera();$('closeCamera').onclick=()=>$('cameraDialog').close();$('cameraDialog').addEventListener('close',()=>{field('rtsp_url').value='';if(zonePlayer)zonePlayer.destroy();zonePlayer=null;});
 field('sensitivity').oninput=()=>{$('sensValue').value=field('sensitivity').value;};
-form.onsubmit=async e=>{e.preventDefault();const value={};for(const el of form.elements){if(!el.name||['zx','zy','zw','zh'].includes(el.name))continue;value[el.name]=el.type==='checkbox'?el.checked:(el.type==='number'||el.type==='range'?Number(el.value):el.value);}value.zone=['zx','zy','zw','zh'].map(k=>Number(field(k).value)/100);if(editing){value.id=editing.id;if(!value.password)delete value.password;if(!value.onvif_password)delete value.onvif_password;}const[x,y,w,h]=value.zone;if(x+w>1.001||y+h>1.001){$('formError').textContent=t('zoneError');return;}e.submitter.disabled=true;try{await api('/api/cameras',value);$('cameraDialog').close();await loadCameras(mode==='live');toast(t('saved'));}catch(e){$('formError').textContent=e.message;}finally{e.submitter.disabled=false;}};
+form.onsubmit=async e=>{e.preventDefault();const value={};for(const el of form.elements){if(!el.name||['stream_source','zx','zy','zw','zh'].includes(el.name)||(el.disabled&&el.closest('[data-stream-fields]')))continue;value[el.name]=el.type==='checkbox'?el.checked:(el.type==='number'||el.type==='range'?Number(el.value):el.value);}const source=field('stream_source').value;
+ if(source!=='custom'){value.rtsp_url='';value.rtsp_preset=source;}
+ else if(!value.rtsp_url.trim()&&editing?.has_rtsp_url)delete value.rtsp_url;
+ else value.rtsp_url=value.rtsp_url.trim();
+ value.zone=['zx','zy','zw','zh'].map(k=>Number(field(k).value)/100);if(editing){value.id=editing.id;if(!value.password)delete value.password;if(!value.onvif_password)delete value.onvif_password;}const[x,y,w,h]=value.zone;if(x+w>1.001||y+h>1.001){$('formError').textContent=t('zoneError');return;}e.submitter.disabled=true;try{await api('/api/cameras',value);$('cameraDialog').close();await loadCameras(mode==='live');toast(t('saved'));}catch(e){$('formError').textContent=e.message;}finally{e.submitter.disabled=false;}};
 $('deleteCamera').onclick=async()=>{if(editing&&confirm(t('deleteConfirm'))){try{await api(`/api/cameras/${editing.id}/delete`,{});$('cameraDialog').close();await loadCameras(mode==='live');}catch(e){$('formError').textContent=e.message;}}};
 const canvas=$('zoneCanvas'),ctx=canvas.getContext('2d');let drag=null;
 function drawZone(){const[x,y,w,h]=['zx','zy','zw','zh'].map(k=>Number(field(k).value)/100);ctx.clearRect(0,0,640,360);ctx.fillStyle='#32d2cc33';ctx.fillRect(x*640,y*360,w*640,h*360);ctx.strokeStyle='#54eeea';ctx.lineWidth=3;ctx.strokeRect(x*640,y*360,w*640,h*360);}

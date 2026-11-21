@@ -34,6 +34,27 @@ class CameraOrderTests(unittest.TestCase):
   for value in (None,'bad',[1],ids+[ids[0]]):self.assertEqual(self.post(value).status_code,400)
   self.assertEqual(self.post(ids[:-1]).status_code,409);self.assertEqual(self.post(ids+['unknown']).status_code,409)
   self.assertEqual(self.client.post('/api/cameras/order',json={'ids':ids}).status_code,403);self.assertEqual(self.store.cameras(),self.cameras)
+ def test_custom_stream_roundtrip_and_credentials_are_private(self):
+  headers={'X-CSRF-Token':self.csrf}
+  url='rtsp://url-user:escaped%40secret@camera.example:554/live?token=demo-token'
+  added=self.client.post('/api/cameras',json={'name':'Custom','rtsp_url':url},headers=headers)
+  self.assertEqual(added.status_code,200)
+  camera_id=added.json['id']
+  response=self.client.get('/api/cameras')
+  self.assertNotIn(b'escaped%40secret',response.data)
+  self.assertNotIn(b'demo-token',response.data)
+  camera=next(c for c in response.json if c['id']==camera_id)
+  self.assertTrue(camera['has_rtsp_url'])
+  self.assertNotIn('rtsp_url',camera)
+  updated=self.client.post('/api/cameras',json={**camera,'name':'Changed'},headers=headers)
+  self.assertEqual(updated.status_code,200)
+  self.assertEqual(self.store.cameras()[-1]['rtsp_url'],url)
+  raw=(self.store.root/'config.sqlite').read_bytes()
+  self.assertNotIn(b'demo-token',raw)
+  switched=self.client.post('/api/cameras',json={**camera,'rtsp_url':'','rtsp_preset':'hikvision'},headers=headers)
+  self.assertEqual(switched.status_code,200)
+  self.assertNotIn('rtsp_url',self.store.cameras()[-1])
+  self.assertEqual(self.store.cameras()[-1]['rtsp_preset'],'hikvision')
  def test_nonadmins_cannot_reorder_and_filtered_order_is_consistent(self):
   ids=[c['id'] for c in reversed(self.cameras)];self.post(ids)
   for role in ('full','limited','playback'):

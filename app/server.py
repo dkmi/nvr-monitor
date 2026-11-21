@@ -286,7 +286,10 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
         for c in store.cameras():
             if not can_camera(c['id']):continue
             w=engine.workers.get(c['id']);listener=w.onvif if w else None
-            visible={k:v for k,v in c.items() if k not in ('password','onvif_password')} if g.user['role']=='admin' else {k:c[k] for k in ('id','name','enabled')}
+            admin = g.user['role'] == 'admin'
+            visible={k:v for k,v in c.items() if k not in ('password','onvif_password','rtsp_url')} if admin else {k:c[k] for k in ('id','name','enabled')}
+            if admin:
+                visible['has_rtsp_url'] = bool(c.get('rtsp_url'))
             out.append({**visible,'has_password':bool(c['password']) if g.user['role']=='admin' else False,'has_onvif_password':bool(c.get('onvif_password')) if g.user['role']=='admin' else False,'detection_mode':w.detection_mode if w else 'disabled','video_mode':('copy' if w.video_copy else 'transcode') if w else 'disabled','source_video':w.source_video if w else {},'onvif_status':listener.snapshot()['status'] if listener else None,'status':w.status if w else 'disabled','error':w.error if w else None,'photo_error':w.photos.error if w else None,'last_photo':w.photos.last_saved if w else None})
         return jsonify(out)
 
@@ -301,6 +304,13 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if old:
                 for key in ('timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb'):
                     if key not in value and key in old:value[key]=old[key]
+                if 'rtsp_url' in old:
+                    value.setdefault('rtsp_url', old['rtsp_url'])
+                if 'rtsp_preset' in old:
+                    value.setdefault('rtsp_preset', old['rtsp_preset'])
+                if value.get('rtsp_url'):
+                    for key in ('username','channel','subtype'):
+                        value.setdefault(key, old[key])
             camera=validate_camera(value)
             if not old and len(cameras)>=32:abort(400)
             updated=[camera if c['id']==camera['id'] else c for c in cameras] if old else cameras+[camera]

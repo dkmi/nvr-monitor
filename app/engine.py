@@ -1,18 +1,49 @@
 """Independent camera workers: HLS, motion detection, disk pre-roll and event MP4."""
 import collections, json, math, os, queue, re, shutil, signal, subprocess, threading, time, uuid
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from .storage import atomic
 from .onvif import Events
 from .timelapse import Snapshotter
 
 WIDTH, HEIGHT, FPS = 160, 90, 3
+RTSP_PRESETS = {
+    'dahua': lambda channel, subtype: f'/cam/realmonitor?channel={channel}&subtype={subtype}',
+    'hikvision': lambda channel, subtype: f'/Streaming/Channels/{channel}{subtype + 1:02d}',
+    'reolink': lambda channel, subtype: f'/Preview_{channel:02d}_{"sub" if subtype else "main"}',
+    'tp_link': lambda channel, subtype: f'/stream{subtype + 1}',
+}
+
+
+def parse_rtsp_url(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 4096 or
+            re.search(r'[^\x21-\x7e]|[\\#]|%(?![0-9A-Fa-f]{2})', value)):
+        raise ValueError('Invalid RTSP URL')
+    try:
+        url = urlsplit(value)
+        port = url.port
+    except ValueError:
+        raise ValueError('Invalid RTSP URL') from None
+    authority = url.netloc.rsplit('@', 1)[-1]
+    if (url.scheme != 'rtsp' or not url.hostname or len(url.hostname) > 253 or port == 0 or
+            url.netloc.count('@') > 1 or
+            not re.fullmatch(r'(?:\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.-]+)(?::[0-9]+)?', authority)):
+        raise ValueError('Invalid RTSP URL')
+    return url
 
 
 def validate_camera(value):
     c = dict(value)
     c['id'] = str(uuid.UUID(c.get('id', str(uuid.uuid4()))))
     c['name'] = str(c.get('name','Camera')).strip()[:80] or 'Camera'
+    rtsp_url = c.get('rtsp_url', '')
+    preset = c.get('rtsp_preset', 'dahua')
+    if not isinstance(preset, str) or preset not in RTSP_PRESETS:
+        raise ValueError('Invalid RTSP preset')
+    if rtsp_url != '':
+        url = parse_rtsp_url(rtsp_url)
+        c['host'] = url.hostname
+        c['port'] = url.port or 554
     host = str(c.get('host','')).strip()
     if not host or len(host)>253 or not re.fullmatch(r'[A-Za-z0-9.:-]+',host): raise ValueError('Invalid host')
     c['host'] = host
@@ -37,12 +68,23 @@ def validate_camera(value):
     if c['motion_source'] not in ('rtsp','onvif') or c['onvif_soap'] not in ('auto','1.1','1.2'):raise ValueError('Invalid ONVIF mode')
     c['onvif_fallback']=bool(c.get('onvif_fallback',True))
     c['onvif_use_camera_credentials']=bool(c.get('onvif_use_camera_credentials',True))
-    return {k:c[k] for k in ['timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb','id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
+    validated = {k:c[k] for k in ['timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb','id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
+    if rtsp_url:
+        # Preserve the original escaped credentials, path and query.
+        validated['rtsp_url'] = 'rtsp:' + rtsp_url.partition(':')[2]
+    elif preset != 'dahua':
+        validated['rtsp_preset'] = preset
+    return validated
 
 
 def input_args(camera):
-    host=camera['host']; host='['+host+']' if ':' in host else host
-    url = 'rtsp://'+quote(camera['username'],safe='')+':'+quote(camera['password'],safe='')+'@'+host+':'+str(camera['port'])+'/cam/realmonitor?channel='+str(camera['channel'])+'&subtype='+str(camera['subtype'])
+    url = camera.get('rtsp_url')
+    if not url:
+        host=camera['host']; host='['+host+']' if ':' in host else host
+        path = RTSP_PRESETS[camera.get('rtsp_preset', 'dahua')](camera['channel'], camera['subtype'])
+        username = quote(camera['username'], safe='')
+        password = quote(camera['password'], safe='')
+        url = f"rtsp://{username}:{password}@{host}:{camera['port']}{path}"
     return ['-rtsp_transport','tcp','-timeout','15000000','-i',url]
 
 
@@ -103,7 +145,7 @@ class CameraWorker(threading.Thread):
     def start_detector(self):
         args=self.source if self.source else input_args(self.camera)
         detector_args=args
-        if not self.source and self.camera['subtype']==0:
+        if not self.source and not self.camera.get('rtsp_url') and self.camera['subtype']==0:
             # Motion needs only a tiny frame; avoid decoding the full-resolution main stream twice.
             auxiliary=input_args({**self.camera,'subtype':1})
             try:
