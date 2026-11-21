@@ -18,7 +18,7 @@ function language(value){lang=value;localStorage.setItem('dm-lang',lang);documen
 async function api(path,body,signal){const response=await fetch(path,{signal,method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok){if(response.status===401&&path!='/api/login')showAuth();const detail=await response.json().catch(()=>({}));throw new Error(`${detail.error||t('error')} (${response.status})`);}return response.json();}
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,6000);}
 function showAuth(){authCheckGeneration++;clearCameraDrag();noticeRelease=null;renderUpdateNotice();players.forEach(p=>p.destroy());players.clear();if(zonePlayer)zonePlayer.destroy();zonePlayer=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('playPlayer').pause();$('playPlayer').removeAttribute('src');$('grid').replaceChildren();me=null;$('cameraList').replaceChildren();cameras=[];clips=[];photos=[];photoCursor=null;photoRequest++;$('photoGallery').replaceChildren();$('photoFull').removeAttribute('src');csrf='';$('shell').hidden=true;$('auth').hidden=false;renderUpdateProgress();}
-async function boot(){try{const state=await api('/api/state');syncLiveDelay(state.live_delay??30,false);configured=state.configured;csrf=state.csrf||'';me=state.user||null;$('tokenLabel').hidden=true;$('setupHelp').hidden=configured;$('authPassword').minLength=configured?1:12;language(lang);if(state.authenticated){$('auth').hidden=true;$('shell').hidden=false;applyPermissions();resumeUpdate();checkAdminUpdates();await loadCameras(me.role!=='playback');if(me.role==='playback')switchMode('playback');}}catch(e){$('authError').textContent=e.message;}}
+async function boot(){try{const state=await api('/api/state');syncLiveDelay(state.live_delay??30,false);configured=state.configured;emailRecovery=Boolean(state.email_recovery);$('forgotPassword').hidden=!configured;csrf=state.csrf||'';me=state.user||null;$('tokenLabel').hidden=true;$('setupHelp').hidden=configured;$('authPassword').minLength=configured?1:12;language(lang);if(state.authenticated){$('auth').hidden=true;$('shell').hidden=false;applyPermissions();resumeUpdate();checkAdminUpdates();await loadCameras(me.role!=='playback');if(me.role==='playback')switchMode('playback');}}catch(e){$('authError').textContent=e.message;}}
 $('authForm').onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;try{const result=await api(configured?'/api/login':'/api/setup',{username:$('authUsername').value,password:$('authPassword').value,token:$('setupToken').value});csrf=result.csrf;configured=true;$('authPassword').value='';$('setupToken').value='';$('authError').textContent='';await boot();}catch(e){$('authError').textContent=t('invalidLogin');}finally{button.disabled=false;}};
 function attach(video,id){
  let hls=null,retry=null,nativeTimer=null,closed=false;const delay=liveDelaySeconds,url=`/live/${id}/live.m3u8`;
@@ -66,7 +66,7 @@ $('lock').onclick=async()=>{try{await api('/api/logout',{});showAuth();await boo
 $('changePassword').onclick=()=>{$('passwordForm').reset();$('passwordError').textContent='';$('passwordDialog').showModal();};$('cancelPassword').onclick=()=>$('passwordDialog').close();$('passwordForm').onsubmit=async e=>{e.preventDefault();const f=e.target;if(f.elements.password.value!==f.elements.confirm.value){$('passwordError').textContent=t('passwordMismatch');return;}try{const result=await api('/api/password',{old:f.elements.old.value,password:f.elements.password.value});csrf=result.csrf;$('passwordDialog').close();toast(t('passwordChanged'));}catch(e){$('passwordError').textContent=e.message;}};
 document.querySelectorAll('[data-lang]').forEach(el=>el.onclick=()=>language(el.dataset.lang));document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.tile.expanded').forEach(el=>el.classList.remove('expanded'));});
 const today=new Date();$('playDate').value=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;$('photoDate').value=$('playDate').value;setInterval(()=>$('clock').textContent=new Date().toLocaleString(lang==='bg'?'bg-BG':'en-GB'),1000);setInterval(()=>{if(!$('shell').hidden)loadCameras(false).catch(()=>{});},5000);setInterval(()=>{if(!$('shell').hidden&&mode==='playback')loadClips().catch(()=>{});},15000);boot();
-function applyPermissions(){const admin=me?.role==='admin';$('addCamera').hidden=!admin;$('emptyAdd').hidden=!admin;$('manageUsers').hidden=!admin;$('manageUpdates').hidden=!admin;$('cameraOrderHint').hidden=!admin;renderUpdateNotice();$('liveDelayControls').hidden=!admin;$('liveTab').hidden=me?.role==='playback';$('signedInAs').textContent=me?me.username:'';}
+function applyPermissions(){const admin=me?.role==='admin';$('addCamera').hidden=!admin;$('emptyAdd').hidden=!admin;$('manageUsers').hidden=!admin;$('manageSMTP').hidden=!admin;$('manageUpdates').hidden=!admin;$('cameraOrderHint').hidden=!admin;renderUpdateNotice();$('liveDelayControls').hidden=!admin;$('liveTab').hidden=me?.role==='playback';$('signedInAs').textContent=me?me.username:'';}
 const userForm=$('userForm'),uf=name=>userForm.elements.namedItem(name);
 function renderUsers(){$('userList').replaceChildren();users.forEach(u=>{const button=node('button','clip',`${u.username} · ${t({admin:'roleAdmin',full:'roleFull',limited:'roleLimited',playback:'rolePlayback'}[u.role])}${u.enabled?'':' · ⏸'}`);button.onclick=()=>editUser(u);$('userList').append(button);});}
 function editUser(user=null){userForm.reset();uf('id').value=user?.id||'';uf('username').value=user?.username||'';uf('password').required=!user;uf('password').placeholder=user?t('leavePassword'):'';uf('role').value=user?.role||'limited';uf('enabled').checked=user?.enabled??true;uf('all_cameras').checked=user?.all_cameras||false;$('userError').textContent='';$('deleteUser').hidden=!user||user.id===me.id;const ids=new Set([...cameras.map(c=>c.id),...(user?.cameras||[])]);$('userCameras').replaceChildren();for(const id of ids){const label=node('label','check');const box=node('input');box.type='checkbox';box.value=id;box.checked=user?.cameras?.includes(id)||false;label.append(box,node('span','',cameras.find(c=>c.id===id)?.name||id));$('userCameras').append(label);}roleChanged();}
@@ -233,3 +233,233 @@ function clearCameraDrag(){dragCameraId=null;document.body.classList.remove('cam
 function cameraDropTarget(element,id){element.ondragover=e=>{if(dragCameraId&&dragCameraId!==id&&!orderSaving){e.preventDefault();e.dataTransfer.dropEffect='move';element.classList.add('camera-drop-target');}};element.ondragleave=e=>{if(!element.contains(e.relatedTarget))element.classList.remove('camera-drop-target');};element.ondrop=e=>{e.preventDefault();e.stopPropagation();const from=dragCameraId;clearCameraDrag();if(from)moveCamera(from,id);};}
 function syncCameraPositions(){document.querySelectorAll('.camera-drag').forEach(h=>{h.title=t('cameraDrag');h.setAttribute('aria-label',t('cameraDrag'));});$('grid').setAttribute('role','list');const positions=new Map(cameras.map((c,i)=>[c.id,i]));document.querySelectorAll('#grid>.tile').forEach(tile=>{const position=positions.get(tile.dataset.id);if(position!==undefined){tile.style.order=position;tile.setAttribute('aria-posinset',position+1);tile.setAttribute('aria-setsize',cameras.length);}});}
 async function moveCamera(from,to){if(orderSaving||me?.role!=='admin'||from===to)return;const ids=cameras.map(c=>c.id),source=ids.indexOf(from),target=ids.indexOf(to);if(source<0||target<0)return;ids.splice(source,1);ids.splice(target,0,from);const userId=me.id,generation=authCheckGeneration;orderSaving=true;try{await api('/api/cameras/order',{ids});if(me?.id!==userId||generation!==authCheckGeneration||$('shell').hidden)return;const byId=new Map(cameras.map(c=>[c.id,c]));cameras=ids.map(id=>byId.get(id));renderCameraList();syncCameraPositions();toast(t('cameraOrderSaved'));}catch(e){toast(e.message);}finally{orderSaving=false;if(me&&!$('shell').hidden)loadCameras(false).catch(()=>{});}}
+
+Object.assign(dict.en,{
+ close:'Close', forgotPassword:'Forgot password?', recoverySettings:'Password recovery', recoveryMethod:'Recovery method',
+ emailLink:'Email link', recoveryKey:'Recovery key', sendResetLink:'Send reset link',
+ resetPassword:'Set new password', resetRequested:'If recovery by email is available for this account, a link will be sent.',
+ resetComplete:'Password changed. Sign in with your new password.',
+ invalidRecovery:'This link or key is invalid or expired.',
+ recoveryEmail:'Recovery email', sendVerification:'Send confirmation link', removeEmail:'Remove email',
+ verifyRecovery:'Confirm recovery email', verifiedRecovery:'Recovery email confirmed.',
+ recoveryEmailVerified:'Verified email', recoveryEmailPending:'Awaiting confirmation',
+ recoveryEmailDisabled:'Email recovery is disabled. A recovery key can still be used.',
+ verificationSent:'Confirmation link sent. Open it within 30 minutes.',
+ generateRecoveryKey:'Generate new key', removeKey:'Remove key', recoveryKeyExists:'A recovery key is active.',
+ recoveryKeyMissing:'No recovery key is active.',
+ saveRecoveryKey:'Save this one-time key now. A new key replaces the old one. Changing your password clears the key.',
+ recoverySaved:'Recovery settings saved.', smtpSettings:'SMTP settings', enableEmailRecovery:'Enable email recovery',
+ gmailPreset:'Use Gmail settings', gmailHelp:'For Gmail, enter your full Gmail address and a Google App Password.',
+ smtpHost:'SMTP server', smtpPort:'Port', smtpSecurity:'Encryption', smtpPassword:'SMTP password',
+ smtpSender:'Sender address', publicUrl:'Public HTTPS address', testRecipient:'Test recipient',
+ sendTestEmail:'Send test email', smtpSaved:'SMTP settings saved.', smtpTestSent:'Test email sent.',
+ smtpStoredPassword:'Leave empty to keep the saved password'
+});
+Object.assign(dict.bg,{
+ close:'Затвори', forgotPassword:'Забравена парола?', recoverySettings:'Възстановяване на парола', recoveryMethod:'Метод за възстановяване',
+ emailLink:'Линк по имейл', recoveryKey:'Ключ за възстановяване', sendResetLink:'Изпрати линк',
+ resetPassword:'Задай нова парола', resetRequested:'Ако профилът има настроено възстановяване по имейл, ще получиш линк.',
+ resetComplete:'Паролата е сменена. Влез с новата парола.',
+ invalidRecovery:'Линкът или ключът е невалиден или е изтекъл.',
+ recoveryEmail:'Имейл за възстановяване', sendVerification:'Изпрати линк за потвърждение', removeEmail:'Премахни имейла',
+ verifyRecovery:'Потвърди имейла', verifiedRecovery:'Имейлът за възстановяване е потвърден.',
+ recoveryEmailVerified:'Потвърден имейл', recoveryEmailPending:'Очаква потвърждение',
+ recoveryEmailDisabled:'Възстановяването по имейл е изключено. Можеш да използваш ключ.',
+ verificationSent:'Изпратихме линк за потвърждение. Отвори го до 30 минути.',
+ generateRecoveryKey:'Генерирай нов ключ', removeKey:'Премахни ключа', recoveryKeyExists:'Има активен ключ за възстановяване.',
+ recoveryKeyMissing:'Няма активен ключ за възстановяване.',
+ saveRecoveryKey:'Запази еднократния ключ сега. Новият ключ заменя стария. Смяната на паролата обезсилва ключа.',
+ recoverySaved:'Настройките са запазени.', smtpSettings:'SMTP настройки', enableEmailRecovery:'Включи възстановяване по имейл',
+ gmailPreset:'Използвай настройки за Gmail', gmailHelp:'За Gmail въведи пълния си адрес и парола за приложение от Google.',
+ smtpHost:'SMTP сървър', smtpPort:'Порт', smtpSecurity:'Криптиране', smtpPassword:'SMTP парола',
+ smtpSender:'Адрес на подателя', publicUrl:'Публичен HTTPS адрес', testRecipient:'Получател на тестовия имейл',
+ sendTestEmail:'Изпрати тестов имейл', smtpSaved:'SMTP настройките са запазени.', smtpTestSent:'Тестовият имейл е изпратен.',
+ smtpStoredPassword:'Остави празно, за да запазиш текущата парола'
+});
+
+const resetForm=$('resetForm'), resetField=name=>resetForm.elements.namedItem(name);
+let emailRecovery=false, recoveryLink=null;
+function configureReset(){
+ const verifying=recoveryLink?.action==='verify';
+ const byKey=!recoveryLink&&resetField('method').value==='key';
+ const password=byKey||recoveryLink?.action==='reset';
+ $('recoveryMethodLabel').hidden=!!recoveryLink;
+ $('resetUsernameLabel').hidden=!!recoveryLink;
+ $('resetKeyLabel').hidden=!byKey;
+ $('resetPasswordFields').hidden=!password;
+ resetField('username').required=!recoveryLink;
+ resetField('key').required=byKey;
+ resetField('password').required=!!password;
+ resetField('confirm').required=!!password;
+ const submit=$('submitReset');
+ submit.dataset.t=verifying?'verifyRecovery':password?'resetPassword':'sendResetLink';
+ submit.textContent=t(submit.dataset.t);
+}
+
+function openReset(link=null){
+ recoveryLink=link;
+ resetForm.reset();
+ resetField('method').options[0].disabled=!emailRecovery;
+ resetField('method').value=emailRecovery?'email':'key';
+ resetField('username').value=$('authUsername').value;
+ $('resetStatus').textContent='';
+ $('submitReset').hidden=false;
+ configureReset();
+ if(!$('resetDialog').open)$('resetDialog').showModal();
+}
+
+$('forgotPassword').onclick=()=>openReset();
+$('closeReset').onclick=()=>$('resetDialog').close();
+$('resetDialog').addEventListener('close',()=>{
+ recoveryLink=null;
+ resetForm.reset();
+});
+resetField('method').onchange=configureReset;
+resetForm.onsubmit=async e=>{
+ e.preventDefault();
+ const link=recoveryLink;
+ const username=resetField('username').value;
+ const password=resetField('password').value;
+ const button=e.submitter;
+ if(resetField('password').required&&password!==resetField('confirm').value){
+  $('resetStatus').textContent=t('passwordMismatch');
+  return;
+ }
+ button.disabled=true;
+ try{
+  if(link?.action==='verify'){
+   await api('/api/recovery/verify',{token:link.token});
+   recoveryLink=null;
+   $('resetStatus').textContent=t('verifiedRecovery');
+   button.hidden=true;
+  }else if(!link&&resetField('method').value==='email'){
+   await api('/api/recovery/request',{username});
+   $('resetStatus').textContent=t('resetRequested');
+  }else{
+   await api('/api/recovery/reset',{method:link?'email':'key',token:link?.token||resetField('key').value,username,password});
+   showAuth();
+   $('authRecoveryStatus').textContent=t('resetComplete');
+   $('authRecoveryStatus').hidden=false;
+  }
+ }catch(error){
+  $('resetStatus').textContent=error.message.endsWith(' (400)')?t('invalidRecovery'):error.message;
+ }finally{
+  button.disabled=false;
+ }
+};
+
+const recoveryForm=$('recoveryForm'), recoveryField=name=>recoveryForm.elements.namedItem(name);
+let recoverySaving=false;
+async function refreshRecovery(){
+ const info=await api('/api/recovery');
+ const details=[];
+ if(info.email)details.push(t('recoveryEmailVerified')+' — '+info.email);
+ if(info.pending_email)details.push(t('recoveryEmailPending')+' — '+info.pending_email);
+ if(!info.email_available)details.push(t('recoveryEmailDisabled'));
+ $('recoveryEmailStatus').textContent=details.join(' · ');
+ $('verifyRecoveryEmail').disabled=!info.email_available;
+ $('removeRecoveryEmail').hidden=!(info.email||info.pending_email);
+ $('recoveryKeyStatus').textContent=t(info.has_key?'recoveryKeyExists':'recoveryKeyMissing');
+ $('removeRecoveryKey').hidden=!info.has_key;
+}
+$('manageRecovery').onclick=async()=>{
+ try{
+  recoveryForm.reset();
+  $('recoveryStatus').textContent='';
+  await refreshRecovery();
+  $('recoveryDialog').showModal();
+ }catch(error){toast(error.message);}
+};
+$('closeRecovery').onclick=()=>$('recoveryDialog').close();
+$('recoveryDialog').addEventListener('close',()=>{
+ recoveryForm.reset();
+ $('generatedKey').value='';
+ $('generatedKeyLabel').hidden=true;
+});
+recoveryForm.onsubmit=async e=>{
+ e.preventDefault();
+ if(recoverySaving)return;
+ const user=me;
+ const action=e.submitter.value;
+ const password=recoveryField('password').value;
+ const email=recoveryField('email').value;
+ recoverySaving=true;
+ e.submitter.disabled=true;
+ try{
+  const result=await api('/api/recovery',{action,password,email});
+  if(me!==user||!$('recoveryDialog').open)return;
+  recoveryField('password').value='';
+  if(action==='create_key'||action==='remove_key'){
+   $('generatedKey').value=result.key||'';
+   $('generatedKeyLabel').hidden=!result.key;
+  }
+  $('recoveryStatus').textContent=t(action==='verify_email'?'verificationSent':'recoverySaved');
+  await refreshRecovery();
+ }catch(error){$('recoveryStatus').textContent=error.message;}
+ finally{
+  recoverySaving=false;
+  e.submitter.disabled=false;
+ }
+};
+
+const smtpForm=$('smtpForm'), smtpField=name=>smtpForm.elements.namedItem(name);
+function showSMTP(config){
+ smtpField('enabled').checked=!!config.enabled;
+ for(const name of ['host','username','sender','base_url'])smtpField(name).value=config[name]||'';
+ smtpField('port').value=config.port||587;
+ smtpField('security').value=config.security||'starttls';
+ smtpField('password').value='';
+ smtpField('password').placeholder=config.has_password?t('smtpStoredPassword'):'';
+ $('smtpFields').disabled=!config.enabled;
+ $('sendTestMail').disabled=!config.enabled;
+}
+smtpField('enabled').onchange=()=>{$('smtpFields').disabled=!smtpField('enabled').checked;};
+$('gmailPreset').onclick=()=>{
+ smtpField('host').value='smtp.gmail.com';
+ smtpField('port').value=587;
+ smtpField('security').value='starttls';
+};
+$('manageSMTP').onclick=async()=>{
+ try{
+  showSMTP(await api('/api/smtp'));
+  $('smtpStatus').textContent='';
+  $('smtpDialog').showModal();
+ }catch(error){toast(error.message);}
+};
+$('closeSMTP').onclick=()=>$('smtpDialog').close();
+$('smtpDialog').addEventListener('close',()=>{smtpField('password').value='';});
+smtpForm.onsubmit=async e=>{
+ e.preventDefault();
+ const value={enabled:smtpField('enabled').checked,port:smtpField('port').valueAsNumber};
+ for(const name of ['host','security','username','sender','base_url'])value[name]=smtpField(name).value.trim();
+ const password=smtpField('password').value;
+ if(password||!value.username)value.password=password;
+ e.submitter.disabled=true;
+ try{
+  const saved=await api('/api/smtp',value);
+  emailRecovery=saved.enabled;
+  showSMTP(saved);
+  $('smtpStatus').textContent=t('smtpSaved');
+ }catch(error){$('smtpStatus').textContent=error.message;}
+ finally{e.submitter.disabled=false;}
+};
+$('smtpTestForm').onsubmit=async e=>{
+ e.preventDefault();
+ e.submitter.disabled=true;
+ try{
+  await api('/api/smtp/test',{recipient:e.currentTarget.elements.namedItem('recipient').value});
+  $('smtpStatus').textContent=t('smtpTestSent');
+ }catch(error){$('smtpStatus').textContent=error.message;}
+ finally{e.submitter.disabled=!smtpField('enabled').checked;}
+};
+
+function openRecoveryLink(){
+ const recoveryFragment=location.hash.match(/^#(reset|verify)=([A-Za-z0-9_-]{43})$/);
+ if(!recoveryFragment)return;
+ history.replaceState(history.state,'',location.pathname+location.search);
+ document.querySelectorAll('dialog[open]:not(#resetDialog)').forEach(dialog=>dialog.close());
+ language(lang);
+ openReset({action:recoveryFragment[1],token:recoveryFragment[2]});
+}
+window.addEventListener('hashchange',openRecoveryLink);
+openRecoveryLink();

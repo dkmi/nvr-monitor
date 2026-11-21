@@ -1,6 +1,7 @@
 import hmac, json, math, re, os, secrets, signal, threading, time, uuid
 from collections import defaultdict, deque
 import logging
+from smtplib import SMTPException
 from pathlib import Path
 from urllib.parse import urlsplit
 from flask import Flask, request, jsonify, send_file, abort, make_response, g
@@ -12,6 +13,12 @@ from .updates import Updates
 from .version import VERSION
 from .revision import installed_revision
 from .timelapse import photo_index, PHOTO_ID
+from .recovery import Recovery, send_mail, smtp_settings, valid_email
+
+PUBLIC_API = {
+    '/api/state', '/api/login', '/api/setup', '/api/health',
+    '/api/recovery/request', '/api/recovery/reset', '/api/recovery/verify',
+}
 
 
 def create_app(data=None, recordings=None, cache=None, start_engine=True):
@@ -21,6 +28,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     if os.getenv('TRUST_PROXY','false').lower()=='true':app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1,x_host=1)
     store=Store(data);engine=Engine(cache,recordings,os.getenv('FFMPEG','ffmpeg'),os.getenv('FFPROBE','ffprobe'))
     updates=Updates(os.getenv('UPDATES_DIR','/updates'))
+    recovery=Recovery(store)
     sessions={};auth_lock=threading.RLock();write_lock=threading.Lock();attempts=defaultdict(deque)
     setup_file=data/'setup-token'
     if store.users():setup_file.unlink(missing_ok=True)
@@ -63,11 +71,11 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if not request.is_json:abort(415)
             origin=request.headers.get('Origin')
             if origin and urlsplit(origin).netloc!=request.host:abort(403)
-            if request.path not in ('/api/login','/api/setup'):
+            if request.path not in PUBLIC_API:
                 _,row=session()
                 if not row:abort(401)
                 if not hmac.compare_digest(request.headers.get('X-CSRF-Token',''),row['csrf']):abort(403)
-        if request.path.startswith(('/api/','/live/','/recordings/')) and request.path not in ('/api/state','/api/login','/api/setup','/api/health'):
+        if request.path.startswith(('/api/','/live/','/recordings/')) and request.path not in PUBLIC_API:
             if not session()[1]:abort(401)
 
     @app.after_request
@@ -114,12 +122,12 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     @app.get('/api/state')
     def state():
         _,row=session()
-        return jsonify(configured=bool(store.users()),authenticated=bool(row),csrf=row['csrf'] if row else None,user=g.user if row else None,live_delay=viewing_preferences()['live_delay'])
+        return jsonify(configured=bool(store.users()),authenticated=bool(row),csrf=row['csrf'] if row else None,user=g.user if row else None,live_delay=viewing_preferences()['live_delay'],email_recovery=bool(store.get('smtp',{}).get('enabled')))
 
-    def rate_limit():
-        ip=request.remote_addr
+    def rate_limit(scope='login'):
+        bucket=(scope,request.remote_addr)
         with auth_lock:
-            q=attempts[ip];now=time.monotonic()
+            q=attempts[bucket];now=time.monotonic()
             while q and q[0]<now-60:q.popleft()
             if len(q)>=8:abort(429)
             q.append(now)
@@ -153,6 +161,105 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if not store.check_user(current['username'],value.get('old','')):abort(403)
             updated=store.save_user({**current,'password':value.get('password','')})
         return new_session(updated)
+
+    def recovery_input():
+        value = request.get_json()
+        if not isinstance(value, dict):
+            abort(400)
+        return value
+
+    def smtp_public(config):
+        return {**{key: item for key, item in config.items() if key != 'password'},
+                'has_password': bool(config.get('password'))}
+
+    @app.get('/api/smtp')
+    def get_smtp():
+        admin_only()
+        return jsonify(smtp_public(store.get('smtp', {})))
+
+    @app.post('/api/smtp')
+    def save_smtp():
+        admin_only()
+        with write_lock:
+            config = smtp_settings(recovery_input(), store.get('smtp', {}))
+            store.put('smtp', config)
+        return jsonify(smtp_public(config))
+
+    def deliver_mail(config, recipient, subject, message):
+        try:
+            send_mail(config, recipient, subject, message)
+        except (OSError, SMTPException, ValueError):
+            return jsonify(error='SMTP delivery failed. Check the server settings.'), 502
+        return jsonify(ok=True)
+
+    @app.post('/api/smtp/test')
+    def test_smtp():
+        admin_only()
+        rate_limit('smtp-test')
+        recipient = valid_email(recovery_input().get('recipient'))
+        config = store.get('smtp', {})
+        if not config.get('enabled'):
+            abort(409)
+        return deliver_mail(config, recipient, 'NVR Monitor SMTP test',
+                            'NVR Monitor can send mail using the saved SMTP settings.')
+
+    @app.get('/api/recovery')
+    def get_recovery():
+        config = store.get('smtp', {})
+        return jsonify(**recovery.status(g.user['id']), email_available=bool(config.get('enabled')))
+
+    @app.post('/api/recovery')
+    def set_recovery():
+        rate_limit('recovery-settings')
+        value = recovery_input()
+        action = value.get('action')
+        with write_lock:
+            user = store.check_user(g.user['username'], value.get('password'))
+            if not user or user['id'] != g.user['id'] or user['version'] != g.user['version']:
+                abort(403)
+            if action in ('create_key', 'remove_key'):
+                key = recovery.set_key(user['id'], action == 'create_key')
+                return jsonify(ok=True, key=key)
+            if action == 'remove_email':
+                recovery.set_email(user['id'], None)
+                return jsonify(ok=True)
+            if action != 'verify_email':
+                abort(400)
+            config = store.get('smtp', {})
+            if not config.get('enabled'):
+                abort(409)
+            email = valid_email(value.get('email'))
+            token = recovery.set_email(user['id'], email)
+        return deliver_mail(config, email, 'NVR Monitor recovery email',
+                            f"Confirm your recovery email within 30 minutes: {config['base_url']}/#verify={token}")
+
+    @app.post('/api/recovery/request')
+    def request_reset():
+        rate_limit('recovery-request')
+        recovery.request_reset(recovery_input().get('username'), store.get('smtp', {}))
+        return jsonify(ok=True), 202
+
+    @app.post('/api/recovery/verify')
+    def verify_recovery():
+        rate_limit('recovery-verify')
+        if not recovery.verify_email(recovery_input().get('token')):
+            abort(400)
+        return jsonify(ok=True)
+
+    @app.post('/api/recovery/reset')
+    def reset_password():
+        rate_limit('recovery-reset')
+        value = recovery_input()
+        method = value.get('method')
+        with write_lock:
+            if method == 'email' and not store.get('smtp', {}).get('enabled'):
+                abort(400)
+            if not recovery.reset_password(value.get('token'), method, value.get('password'),
+                                           value.get('username')):
+                abort(400)
+        response = jsonify(ok=True)
+        response.delete_cookie('dm_session')
+        return response
 
     @app.get('/api/users')
     def users():

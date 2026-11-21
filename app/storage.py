@@ -19,6 +19,13 @@ def password_hash(password, salt):
     return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 600000)
 
 
+def password_record(password):
+    if not isinstance(password, str) or not 12 <= len(password) <= 256:
+        raise ValueError('Password must have 12–256 characters')
+    salt = secrets.token_bytes(24)
+    return salt.hex(), password_hash(password, salt).hex()
+
+
 class Store:
     def __init__(self, root):
         self.root = Path(root); self.root.mkdir(parents=True, exist_ok=True); os.chmod(self.root, 0o700)
@@ -81,6 +88,11 @@ class Store:
         with self.lock:
             self.db.execute('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, salt TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, all_cameras INTEGER NOT NULL, enabled INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1)')
             self.db.execute('CREATE TABLE IF NOT EXISTS user_cameras (user_id TEXT NOT NULL, camera_id TEXT NOT NULL, PRIMARY KEY(user_id,camera_id))')
+            self.db.execute("""CREATE TABLE IF NOT EXISTS recovery (
+                user_id TEXT PRIMARY KEY, email TEXT, pending_email TEXT,
+                verify_hash TEXT, verify_until REAL, reset_hash TEXT, reset_until REAL,
+                key_hash TEXT
+            )""")
             self.db.commit()
             legacy=self.get('auth')
             if legacy and not self.db.execute('SELECT 1 FROM users LIMIT 1').fetchone():
@@ -116,11 +128,14 @@ class Store:
         salt=bytes.fromhex(row['salt']) if row else b'unknown-user-dummy-salt'
         candidate=password_hash(password,salt).hex()
         if not row or not row['enabled'] or not hmac.compare_digest(candidate,row['password_hash']):return None
-        return self.user(user_id=row['id'])
+        row.pop('salt')
+        row.pop('password_hash')
+        return row
 
     def save_user(self,value,first=False):
         import uuid
-        with self.lock:
+        with self.lock, self.db:
+            self.db.execute('BEGIN IMMEDIATE')
             if first and self.db.execute('SELECT 1 FROM users LIMIT 1').fetchone():raise ValueError('Already configured')
             username=self.normalize_username(value.get('username',''))
             user_id=str(uuid.UUID(value['id'])) if value.get('id') else str(uuid.uuid4())
@@ -136,14 +151,16 @@ class Store:
             password=value.get('password')
             if password is None and old:salt=old['salt'];hashed=old['password_hash']
             else:
-                if not isinstance(password,str) or not 12<=len(password)<=256:raise ValueError('Password must have 12–256 characters')
-                raw=secrets.token_bytes(24);salt=raw.hex();hashed=password_hash(password,raw).hex()
+                salt,hashed=password_record(password)
             version=old['version']+1 if old else 1
             try:
-                with self.db:
-                    self.db.execute('INSERT INTO users VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash,role=excluded.role,all_cameras=excluded.all_cameras,enabled=excluded.enabled,version=excluded.version',(user_id,username,salt,hashed,role,int(all_cameras),int(enabled),version))
-                    self.db.execute('DELETE FROM user_cameras WHERE user_id=?',(user_id,))
-                    self.db.executemany('INSERT INTO user_cameras VALUES (?,?)',[(user_id,c) for c in cameras])
+                self.db.execute('INSERT INTO users VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,salt=excluded.salt,password_hash=excluded.password_hash,role=excluded.role,all_cameras=excluded.all_cameras,enabled=excluded.enabled,version=excluded.version',(user_id,username,salt,hashed,role,int(all_cameras),int(enabled),version))
+                self.db.execute('DELETE FROM user_cameras WHERE user_id=?',(user_id,))
+                self.db.executemany('INSERT INTO user_cameras VALUES (?,?)',[(user_id,c) for c in cameras])
+                if old and (password is not None or not enabled):
+                    self.db.execute("""UPDATE recovery SET key_hash=NULL, reset_hash=NULL,
+                        reset_until=NULL, pending_email=NULL, verify_hash=NULL, verify_until=NULL
+                        WHERE user_id=?""", (user_id,))
             except sqlite3.IntegrityError:raise ValueError('Username already exists')
             return self.user(user_id=user_id)
 
@@ -153,4 +170,5 @@ class Store:
             if not old:raise ValueError('Unknown user')
             if old['role']=='admin' and old['enabled'] and not self.db.execute("SELECT 1 FROM users WHERE role='admin' AND enabled=1 AND id!=?",(user_id,)).fetchone():raise ValueError('Cannot delete the last administrator')
             with self.db:
+                self.db.execute('DELETE FROM recovery WHERE user_id=?', (user_id,))
                 self.db.execute('DELETE FROM user_cameras WHERE user_id=?',(user_id,));self.db.execute('DELETE FROM users WHERE id=?',(user_id,))

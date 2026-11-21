@@ -105,7 +105,18 @@ docker compose up -d --build
 docker compose stop
 ```
 
-Recover an administrator password locally without deleting camera settings:
+### Password recovery
+
+Users can open **Password recovery** while signed in and confirm their current password to set up either method:
+
+- Generate a one-time recovery key and store it in a password manager. It works without email. Generating a new key replaces the previous one, and changing the account password clears the key.
+- Verify a recovery email address. The confirmation and password reset links expire after 30 minutes and can each be used once.
+
+To enable email recovery, an administrator opens **SMTP settings**, enables recovery by email, and saves the outbound SMTP host, port, encryption, sender and the public HTTPS address of this NVR Monitor instance. Use **Send test email** to check delivery with the saved settings. The SMTP password is encrypted with the installation's vault key. The Gmail preset uses `smtp.gmail.com`, port 587 and STARTTLS. Enter the full Gmail address and a Google App Password if the account permits App Passwords.
+
+After setup, use **Forgot password?** on the login screen. A password reset signs out the account's existing sessions and preserves camera and recording settings.
+
+Recover an account locally if browser recovery is unavailable:
 
 ```sh
 docker compose exec monitor python -m app.manage
