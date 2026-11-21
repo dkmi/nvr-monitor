@@ -6,6 +6,8 @@ Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, r
 
 **Live demo:** [Try NVR Monitor](https://nvr.unix-bg.org/demo/). Sign in with username `demo` and password `demo`. The demo is read-only and uses synthetic camera footage.
 
+Open **Add camera** in the demo to try the manufacturer selector and the **Custom RTSP URL** field. Changes are never saved.
+
 **Guides**
 
 - [Help: cameras, users, and password recovery](https://nvr.unix-bg.org/help/)
