@@ -9,3 +9,6 @@
 aside nav{flex-direction:column;gap:6px}aside nav button{width:100%;text-align:left}
 
 .camera-drag{cursor:grab;touch-action:none;flex-shrink:0;letter-spacing:-2px;padding:5px 8px!important;color:var(--accent)}.camera-drag:active{cursor:grabbing}.cameraRow>.camera-drag{float:right;margin-left:8px}.tileName{flex:1}.camera-drop-target{outline:2px solid var(--accent);outline-offset:-2px}.camera-dragging .cameraRow,.camera-dragging .tile{transition:background-color .12s}
+
+.update-progress{display:block;width:100%;height:1rem;accent-color:var(--accent,#38bdf8)}
+.update-progress[hidden]{display:none}

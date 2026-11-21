@@ -14,11 +14,11 @@ let lang=localStorage.getItem('dm-lang')||'en',csrf='',configured=false,cameras=
 const $=id=>document.getElementById(id),players=new Map();
 const t=k=>dict[lang][k]||k;
 function node(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;}
-function language(value){lang=value;localStorage.setItem('dm-lang',lang);document.documentElement.lang=lang;document.querySelectorAll('[data-t]').forEach(el=>el.textContent=t(el.dataset.t));document.querySelectorAll('[data-lang]').forEach(el=>el.classList.toggle('selected',el.dataset.lang===lang));$('authTitle').textContent=t(configured?'loginTitle':'setupTitle');$('viewTitle').textContent=t(mode==='photos'?'photos':mode==='live'?'live':'playback');renderCameraList();if($('playCamera').options.length)$('playCamera').options[0].textContent=t('allCameras');if(mode==='playback')renderClips();if(mode==='photos')renderPhotos();if($('photoCamera').options.length)$('photoCamera').options[0].textContent=t('allCameras');updateTileLabels();refreshDelayLabel();renderUpdateNotice();syncCameraPositions();}
-async function api(path,body){const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok){if(response.status===401&&path!='/api/login')showAuth();const detail=await response.json().catch(()=>({}));throw new Error(`${detail.error||t('error')} (${response.status})`);}return response.json();}
+function language(value){lang=value;localStorage.setItem('dm-lang',lang);document.documentElement.lang=lang;document.querySelectorAll('[data-t]').forEach(el=>el.textContent=t(el.dataset.t));document.querySelectorAll('[data-lang]').forEach(el=>el.classList.toggle('selected',el.dataset.lang===lang));$('authTitle').textContent=t(configured?'loginTitle':'setupTitle');$('viewTitle').textContent=t(mode==='photos'?'photos':mode==='live'?'live':'playback');renderCameraList();if($('playCamera').options.length)$('playCamera').options[0].textContent=t('allCameras');if(mode==='playback')renderClips();if(mode==='photos')renderPhotos();if($('photoCamera').options.length)$('photoCamera').options[0].textContent=t('allCameras');updateTileLabels();refreshDelayLabel();renderUpdateNotice();renderUpdateProgress();syncCameraPositions();}
+async function api(path,body,signal){const response=await fetch(path,{signal,method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok){if(response.status===401&&path!='/api/login')showAuth();const detail=await response.json().catch(()=>({}));throw new Error(`${detail.error||t('error')} (${response.status})`);}return response.json();}
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,6000);}
-function showAuth(){authCheckGeneration++;clearCameraDrag();noticeRelease=null;renderUpdateNotice();players.forEach(p=>p.destroy());players.clear();if(zonePlayer)zonePlayer.destroy();zonePlayer=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('playPlayer').pause();$('playPlayer').removeAttribute('src');$('grid').replaceChildren();me=null;$('cameraList').replaceChildren();cameras=[];clips=[];photos=[];photoCursor=null;photoRequest++;$('photoGallery').replaceChildren();$('photoFull').removeAttribute('src');csrf='';$('shell').hidden=true;$('auth').hidden=false;}
-async function boot(){try{const state=await api('/api/state');syncLiveDelay(state.live_delay??30,false);configured=state.configured;csrf=state.csrf||'';me=state.user||null;$('tokenLabel').hidden=true;$('setupHelp').hidden=configured;$('authPassword').minLength=configured?1:12;language(lang);if(state.authenticated){$('auth').hidden=true;$('shell').hidden=false;applyPermissions();checkAdminUpdates();await loadCameras(me.role!=='playback');if(me.role==='playback')switchMode('playback');}}catch(e){$('authError').textContent=e.message;}}
+function showAuth(){authCheckGeneration++;clearCameraDrag();noticeRelease=null;renderUpdateNotice();players.forEach(p=>p.destroy());players.clear();if(zonePlayer)zonePlayer.destroy();zonePlayer=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('playPlayer').pause();$('playPlayer').removeAttribute('src');$('grid').replaceChildren();me=null;$('cameraList').replaceChildren();cameras=[];clips=[];photos=[];photoCursor=null;photoRequest++;$('photoGallery').replaceChildren();$('photoFull').removeAttribute('src');csrf='';$('shell').hidden=true;$('auth').hidden=false;renderUpdateProgress();}
+async function boot(){try{const state=await api('/api/state');syncLiveDelay(state.live_delay??30,false);configured=state.configured;csrf=state.csrf||'';me=state.user||null;$('tokenLabel').hidden=true;$('setupHelp').hidden=configured;$('authPassword').minLength=configured?1:12;language(lang);if(state.authenticated){$('auth').hidden=true;$('shell').hidden=false;applyPermissions();resumeUpdate();checkAdminUpdates();await loadCameras(me.role!=='playback');if(me.role==='playback')switchMode('playback');}}catch(e){$('authError').textContent=e.message;}}
 $('authForm').onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;try{const result=await api(configured?'/api/login':'/api/setup',{username:$('authUsername').value,password:$('authPassword').value,token:$('setupToken').value});csrf=result.csrf;configured=true;$('authPassword').value='';$('setupToken').value='';$('authError').textContent='';await boot();}catch(e){$('authError').textContent=t('invalidLogin');}finally{button.disabled=false;}};
 function attach(video,id){
  let hls=null,retry=null,nativeTimer=null,closed=false;const delay=liveDelaySeconds,url=`/live/${id}/live.m3u8`;
@@ -81,14 +81,132 @@ function motionMethodChanged(){const on=field('motion_source').value==='onvif',r
 field('motion_source').onchange=motionMethodChanged;field('onvif_use_camera_credentials').onchange=motionMethodChanged;
 
 function videoLabel(c){if(c.video_mode==='copy'){const v=c.source_video||{};return t('videoCopy')+(v.width&&v.height?` · ${v.width}×${v.height}`:'');}return c.video_mode==='transcode'?t('videoTranscode'):'';}
-Object.assign(dict.en,{updates:'Updates',checkUpdates:'Check GitHub',installUpdate:'Install update',updateHelp:'Install official stable GitHub releases. Cameras, accounts and recordings are preserved. Recording pauses during restart; sign in again afterwards. Configuration is backed up before installation.',updateConfirm:'Install this release? Recording will pause during restart. A failed health check restores the previous version and configuration.',updaterMissing:'Host updater is unavailable. See README: Updates.',githubUnavailable:'GitHub is unavailable. Try again later.',updateCurrent:'Installed',updateLatest:'Latest',upToDate:'Up to date.',updateQueued:'Update requested.',updateRestart:'Server is restarting. Reconnect and sign in again.',updateIdle:'Ready',queued:'Queued',building:'Building image',backing_up:'Backing up configuration',installing:'Installing',checking:'Checking health',rolling_back:'Restoring previous version',succeeded:'Update completed',rolled_back:'Update failed; previous version restored',failed:'Update failed; see host updater log'});
-let updateInfo=null,updatePoll=null,updateWaiting=false;
-Object.assign(dict.bg,{"updates":"Обновяване","checkUpdates":"Провери в GitHub","installUpdate":"Инсталирай версията","updateHelp":"Камерите, потребителите и записите се запазват. Записването спира при рестарта; след това влез отново. Конфигурацията се архивира преди обновяване.","updateConfirm":"Да инсталирам тази версия? Записването ще спре при рестарта. При неуспешна проверка се възстановяват предишните версия и конфигурация.","updaterMissing":"Хост услугата за обновяване е недостъпна. Виж README: Updates.","githubUnavailable":"Няма връзка с GitHub. Опитай по-късно.","updateCurrent":"Инсталирана","updateLatest":"Последна","upToDate":"Версията е актуална.","updateQueued":"Обновяването е заявено.","updateRestart":"Сървърът се рестартира. Свържи се и влез отново.","updateIdle":"В готовност","queued":"В опашката","building":"Подготовка на образа","backing_up":"Архивиране","installing":"Инсталиране","checking":"Проверка","rolling_back":"Възстановяване","succeeded":"Обновяването приключи","rolled_back":"Предишната версия е възстановена","failed":"Неуспешно обновяване; провери лога"});
-async function refreshUpdates(check=false){try{updateInfo=await api('/api/updates'+(check?'?check=1':''));const r=updateInfo.latest;$('updateVersions').textContent=`${t('updateCurrent')}: ${updateInfo.current}${updateInfo.current_revision?' ('+updateInfo.current_revision.slice(0,7)+')':''} | ${t('updateLatest')}: ${r?.tag||'--'}${r?.revision?' ('+r.revision.slice(0,7)+')':''}`;$('updateNotes').textContent=r?.notes||'';const state=updateInfo.job?.state,busy=['queued','building','backing_up','installing','checking','rolling_back'].includes(state);$('installUpdate').disabled=updateWaiting||busy||!updateInfo.updater_available||!updateInfo.update_available;$('updateStatus').textContent=busy?t(state):!updateInfo.updater_available?t('updaterMissing'):updateInfo.error?t('githubUnavailable'):state&&state!=='idle'?t(state):updateInfo.update_available?t('updateIdle'):t('upToDate');if(busy)updateWaiting=true;else if(['succeeded','rolled_back','failed'].includes(state))updateWaiting=false;}catch(e){$('updateStatus').textContent=updateWaiting?t('updateRestart'):e.message;}}
-$('manageUpdates').onclick=async()=>{if(me?.role!=='admin')return;$('updatesDialog').showModal();await refreshUpdates(true);clearInterval(updatePoll);updatePoll=setInterval(()=>refreshUpdates(),3000);};
-$('closeUpdates').onclick=()=>{$('updatesDialog').close();clearInterval(updatePoll);};$('updatesDialog').addEventListener('close',()=>clearInterval(updatePoll));
+Object.assign(dict.en,{updates:'Updates',checkUpdates:'Check GitHub',installUpdate:'Install update',updateHelp:'Install official stable GitHub releases. Cameras, accounts and recordings are preserved. Recording pauses during restart; sign in again afterwards. Configuration is backed up before installation.',updateConfirm:'Install this release? Recording will pause during restart. A failed health check restores the previous version and configuration.',updaterMissing:'Host updater is unavailable. See README: Updates.',githubUnavailable:'GitHub is unavailable. Try again later.',updateCurrent:'Installed',updateLatest:'Latest',upToDate:'Up to date.',updateIdle:'Ready',queued:'Queued',building:'Building image',backing_up:'Backing up configuration',installing:'Installing',checking:'Checking health',rolling_back:'Restoring previous version',succeeded:'Update completed',rolled_back:'Update failed; previous version restored',failed:'Update failed; see host updater log'});
+Object.assign(dict.bg,{"updates":"Обновяване","checkUpdates":"Провери в GitHub","installUpdate":"Инсталирай версията","updateHelp":"Камерите, потребителите и записите се запазват. Записването спира при рестарта; след това влез отново. Конфигурацията се архивира преди обновяване.","updateConfirm":"Да инсталирам тази версия? Записването ще спре при рестарта. При неуспешна проверка се възстановяват предишните версия и конфигурация.","updaterMissing":"Хост услугата за обновяване е недостъпна. Виж README: Updates.","githubUnavailable":"Няма връзка с GitHub. Опитай по-късно.","updateCurrent":"Инсталирана","updateLatest":"Последна","upToDate":"Версията е актуална.","updateIdle":"В готовност","queued":"В опашката","building":"Подготовка на образа","backing_up":"Архивиране","installing":"Инсталиране","checking":"Проверка","rolling_back":"Възстановяване","succeeded":"Обновяването приключи","rolled_back":"Предишната версия е възстановена","failed":"Неуспешно обновяване; провери лога"});
+Object.assign(dict.en,{
+ updateSubmitting:'Requesting update…',
+ updateReconnecting:'Waiting for the server to respond. This page will retry automatically.',
+ updateSignIn:'Sign in again to see the update result.'
+});
+Object.assign(dict.bg,{
+ updateSubmitting:'Изпращане на заявката за обновяване…',
+ updateReconnecting:'Изчакване на сървъра. Страницата ще опита отново автоматично.',
+ updateSignIn:'Влез отново, за да видиш резултата от обновяването.'
+});
+
+const updateStages=['queued','building','backing_up','installing','checking'];
+const updateResults=['succeeded','rolled_back','failed'];
+let updateInfo=null, updateRequest=null, updateStage=null, updateMessage=null, updateError=null;
+let updateRefreshing=false, updateSubmitting=false;
+
+function renderUpdateProgress(){
+ const progress=$('updateProgress');
+ const stage=updateStages.indexOf(updateStage);
+ progress.hidden=!updateRequest&&updateStage!=='succeeded';
+ if(!updateMessage&&(stage>=0||updateStage==='succeeded')){
+  progress.value=updateStage==='succeeded'?updateStages.length:stage;
+ }else{
+  progress.removeAttribute('value');
+ }
+ const status=updateMessage?t(updateMessage):updateError||(updateStage?t(updateStage):'');
+ if($('updateStatus').textContent!==status)$('updateStatus').textContent=status;
+ $('authUpdateStatus').hidden=!(updateRequest&&!me);
+ $('authUpdateStatus').textContent=updateRequest&&!me?t('updateSignIn'):'';
+ $('checkUpdates').disabled=updateRefreshing||updateSubmitting||!!updateRequest;
+ $('installUpdate').disabled=updateRefreshing||updateSubmitting||!!updateRequest||
+  !updateInfo?.updater_available||!updateInfo?.update_available;
+}
+
+async function refreshUpdates(check=false){
+ if(updateRefreshing||updateSubmitting||me?.role!=='admin')return;
+ const user=me;
+ if(check)updateError=null;
+ updateRefreshing=true;
+ renderUpdateProgress();
+ try{
+  const info=await api('/api/updates'+(check?'?check=1':''),undefined,AbortSignal.timeout(25000));
+  if(me!==user)return;
+  updateInfo=info;
+  const r=info.latest;
+  $('updateVersions').textContent=`${t('updateCurrent')}: ${info.current}${info.current_revision?' ('+info.current_revision.slice(0,7)+')':''} | ${t('updateLatest')}: ${r?.tag||'--'}${r?.revision?' ('+r.revision.slice(0,7)+')':''}`;
+  $('updateNotes').textContent=r?.notes||'';
+  const {state,tag,finished_at:finishedAt}=info.job||{};
+  updateMessage=null;
+  if(info.updater_available&&(updateStages.includes(state)||state==='rolling_back')){
+   updateError=null;
+   updateRequest??={tag,previousFinish:null};
+   updateStage=state;
+  }else if(updateResults.includes(state)&&
+           (!updateRequest||(tag===updateRequest.tag&&finishedAt!==updateRequest.previousFinish))){
+   updateRequest=null;
+   updateStage=state;
+  }else if(!info.updater_available){
+   updateMessage='updaterMissing';
+  }else if(!updateRequest){
+   updateStage=info.error?'githubUnavailable':info.update_available?'updateIdle':'upToDate';
+  }
+ }catch(e){
+  if(updateRequest){
+   updateMessage='updateReconnecting';
+  }else if(me===user){
+   updateStage=null;
+   updateMessage='error';
+  }
+ }finally{
+  updateRefreshing=false;
+  renderUpdateProgress();
+ }
+}
+
+function resumeUpdate(){
+ if(me?.role!=='admin'){
+  updateRequest=null;
+  updateStage=null;
+  updateMessage=null;
+  updateInfo=null;
+  updateError=null;
+ }else if(updateRequest){
+  if(!$('updatesDialog').open)$('updatesDialog').showModal();
+  refreshUpdates();
+ }
+ renderUpdateProgress();
+}
+
+$('manageUpdates').onclick=()=>{
+ if(me?.role!=='admin')return;
+ $('updatesDialog').showModal();
+ refreshUpdates(!updateRequest);
+};
+$('closeUpdates').onclick=()=>$('updatesDialog').close();
 $('checkUpdates').onclick=()=>refreshUpdates(true);
-$('installUpdate').onclick=async()=>{if(!updateInfo?.latest||!confirm(t('updateConfirm')))return;$('installUpdate').disabled=true;try{await api('/api/updates',{tag:updateInfo.latest.tag,revision:updateInfo.latest.revision});updateWaiting=true;$('updateStatus').textContent=t('updateQueued');}catch(e){$('updateStatus').textContent=e.message;await refreshUpdates();}};
+setInterval(()=>{
+ if(updateRequest||$('updatesDialog').open)refreshUpdates();
+},2000);
+
+$('installUpdate').onclick=async()=>{
+ if(!updateInfo?.latest||updateSubmitting||updateRefreshing||updateRequest||!confirm(t('updateConfirm')))return;
+ const {tag,revision}=updateInfo.latest;
+ updateSubmitting=true;
+ updateError=null;
+ updateRequest={tag,previousFinish:updateInfo.job?.finished_at};
+ updateStage=null;
+ updateMessage='updateSubmitting';
+ renderUpdateProgress();
+ try{
+  await api('/api/updates',{tag,revision});
+  updateStage='queued';
+  updateMessage=null;
+ }catch(e){
+  updateRequest=null;
+  updateMessage=null;
+  updateStage=null;
+  updateError=e.message;
+ }finally{
+  updateSubmitting=false;
+  renderUpdateProgress();
+  if(updateRequest)refreshUpdates();
+ }
+};
 
 function setSidebar(collapsed){$('shell').classList.toggle('sidebar-collapsed',collapsed);$('sidebar').inert=collapsed;$('toggleSidebar').textContent=collapsed?'>>>':'<<<';$('toggleSidebar').setAttribute('aria-expanded',String(!collapsed));$('toggleSidebar').setAttribute('aria-label',collapsed?'Show sidebar':'Hide sidebar');localStorage.setItem('nvr-sidebar-collapsed',collapsed?'1':'0');}
 $('toggleSidebar').onclick=()=>setSidebar(!$('shell').classList.contains('sidebar-collapsed'));
