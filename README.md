@@ -6,6 +6,11 @@ Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, r
 
 **Live demo:** [Try NVR Monitor](https://nvr.unix-bg.org/demo/). Sign in with username `demo` and password `demo`. The demo is read-only and uses synthetic camera footage.
 
+**Guides**
+
+- [Help: cameras, users, and password recovery](https://nvr.unix-bg.org/help/)
+- [Useful: example Traefik and Let's Encrypt configuration](https://nvr.unix-bg.org/useful/#traefik)
+
 ## Features
 
 - Multi-camera grid, expanded camera view and audio toggle.
