@@ -2,6 +2,8 @@
 
 Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, record motion with pre-event footage, and browse MP4 recordings in an integrated Playback view. The interface defaults to **English** and also supports **Bulgarian**.
 
+**Official website:** [nvr.unix-bg.org](https://nvr.unix-bg.org/)
+
 ## Features
 
 - Multi-camera grid, expanded camera view and audio toggle.
