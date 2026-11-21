@@ -218,3 +218,11 @@ An administrator can drag the dotted handle in a Live camera tile or sidebar row
 Reordering changes only the stored list order and the visual positions of existing Live tiles. It does not restart camera workers, video players, motion detection, photo capture or recording. Other open clients pick up the saved order on the normal refresh (about five seconds). A stale reorder request after a camera was added/deleted is rejected rather than losing configuration.
 
 Browser check: `python tests/check_camera_order_ui.py` (Playwright/Chromium required).
+
+## Donations
+
+If you would like to support the project, use the address on the corresponding network.
+
+- **ETH (Ethereum)** · `0xD6Ea432f507E53BdEf7Ae4D2f5CB7a2D1b3748D1`
+- **BTC (Bitcoin)** · `bc1qkfgna57p4q8welgte5zn83ujqvnat3c6m66lv5`
+- **DOGE (Dogecoin)** · `DHjt3vNmMPJhqcwx8WXMJBxgtErFqvhMCQ`
