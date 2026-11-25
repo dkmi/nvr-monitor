@@ -85,6 +85,8 @@ For a preset, enter the host, credentials and RTSP port, then select the channel
 
 **Browse H.264 camera streams** opens a searchable catalog of RTSP templates sourced from the [Shinobi Hub camera directory](https://hub.shinobi.video/explore/cameras). Search by manufacturer or model, select a template and enter your camera's address, port and credentials. The catalog fills the Custom RTSP URL field for review before saving. Manufacturer paths without a model label are candidates to try. Enable H.264 in the camera settings and verify the stream after saving.
 
+[H.264 catalog instructions](https://nvr.unix-bg.org/help/#h264-catalog) · [Try the catalog search in the read-only demo](https://nvr.unix-bg.org/demo/) (`demo` / `demo`)
+
 **Most used cameras** contains the ten models in the [JVSG 2024 list](https://www.jvsg.com/top-rated-security-camera/). Select a model to see its RTSP URL and prefill ONVIF motion detection, HTTP port 80, automatic SOAP version and RTSP fallback. Enter the camera's actual credentials. Axis and Hikvision profiles start with separate ONVIF credentials. Hanwha starts with RTSP profile 2; choose the number of the H.264 profile configured on your camera. Selecting a model leaves the motion recording checkbox as set.
 
 [Setup guide and screenshot](https://nvr.unix-bg.org/help/#most-used-cameras) · [Try the presets in the read-only demo](https://nvr.unix-bg.org/demo/) (`demo` / `demo`)
