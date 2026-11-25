@@ -28,6 +28,20 @@ Open **Add camera** in the demo to try **Most used cameras**, the manufacturer s
 - Administrator-only GitHub release checks and host-managed updates with configuration backup and rollback.
 - Collapsible sidebar with a remembered browser preference.
 
+## Demo screenshots
+
+**Playback with camera previews and a recording timeline**
+
+![Playback with camera previews and a recording timeline](https://nvr.unix-bg.org/gallery/playback.webp?v=5172d95)
+
+**Motion Photos dashboard**
+
+![Motion Photos dashboard with a preview for each camera](https://nvr.unix-bg.org/gallery/photos.webp?v=5172d95)
+
+**Add camera · Most used cameras**
+
+![Add camera with Most used cameras expanded and an example RTSP address](https://nvr.unix-bg.org/gallery/most-used-cameras.webp?v=5172d95)
+
 ## Quick start
 
 Requirements: Linux, Docker Engine with the Compose plugin, and network access to your cameras. The installer also uses Python 3.
