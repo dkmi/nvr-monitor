@@ -14,7 +14,7 @@ let lang=localStorage.getItem('dm-lang')||'en',csrf='',configured=false,cameras=
 const $=id=>document.getElementById(id),players=new Map();
 const t=k=>dict[lang][k]||k;
 function node(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;}
-function language(value){lang=value;localStorage.setItem('dm-lang',lang);document.documentElement.lang=lang;document.querySelectorAll('[data-t]').forEach(el=>el.textContent=t(el.dataset.t));document.querySelectorAll('[data-lang]').forEach(el=>el.classList.toggle('selected',el.dataset.lang===lang));$('authTitle').textContent=t(configured?'loginTitle':'setupTitle');$('viewTitle').textContent=t(mode==='photos'?'photos':mode==='live'?'live':'playback');renderCameraList();if($('playCamera').options.length)$('playCamera').options[0].textContent=t('allCameras');if(mode==='playback')renderClips();if(mode==='photos')renderPhotos();for(const option of $('photoCamera').options){if(option.dataset.t)option.textContent=t(option.dataset.t);}updateTileLabels();renderUpdateNotice();renderUpdateProgress();syncCameraPositions();}
+function language(value){lang=value;localStorage.setItem('dm-lang',lang);document.documentElement.lang=lang;document.querySelectorAll('[data-t]').forEach(el=>el.textContent=t(el.dataset.t));document.querySelectorAll('[data-t-label]').forEach(el=>el.label=t(el.dataset.tLabel));renderPopularStream();document.querySelectorAll('[data-lang]').forEach(el=>el.classList.toggle('selected',el.dataset.lang===lang));$('authTitle').textContent=t(configured?'loginTitle':'setupTitle');$('viewTitle').textContent=t(mode==='photos'?'photos':mode==='live'?'live':'playback');renderCameraList();if($('playCamera').options.length)$('playCamera').options[0].textContent=t('allCameras');if(mode==='playback')renderClips();if(mode==='photos')renderPhotos();for(const option of $('photoCamera').options){if(option.dataset.t)option.textContent=t(option.dataset.t);}updateTileLabels();renderUpdateNotice();renderUpdateProgress();syncCameraPositions();}
 async function api(path,body,signal){const response=await fetch(path,{signal,method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:body===undefined?undefined:JSON.stringify(body)});if(!response.ok){if(response.status===401&&path!='/api/login')showAuth();const detail=await response.json().catch(()=>({}));throw new Error(`${detail.error||t('error')} (${response.status})`);}return response.json();}
 function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').hidden=true,6000);}
 function showAuth(){authCheckGeneration++;clearCameraDrag();noticeRelease=null;renderUpdateNotice();players.forEach(p=>p.destroy());players.clear();if(zonePlayer)zonePlayer.destroy();zonePlayer=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());$('playPlayer').pause();$('playPlayer').removeAttribute('src');playbackRequest++;$('playCameraTiles').replaceChildren();$('grid').replaceChildren();me=null;$('cameraList').replaceChildren();cameras=[];clips=[];photos=[];photoCursor=null;photoRequest++;$('photoCamera').value='dashboard';$('photoDashboard').replaceChildren();$('photoGallery').replaceChildren();$('photoFull').removeAttribute('src');csrf='';$('shell').hidden=true;$('auth').hidden=false;renderUpdateProgress();}
@@ -57,19 +57,84 @@ Object.assign(dict.bg,{
  rtspURL:'RTSP адрес',rtspURLHelp:'Включи потребител и парола, ако са нужни. Кодирай специалните знаци в данните за вход.',
  keepRTSPURL:'Остави празно, за да запазиш текущия адрес'
 });
+Object.assign(dict.en,{
+ popularManufacturers:'Popular manufacturers',mostUsedCameras:'Most used cameras',
+ streamURLPreview:'RTSP URL',hanwhaProfile:'RTSP profile number',
+ modelONVIFHelp:'Enable ONVIF in the camera and verify its HTTP port and credentials.',
+ modelONVIFAccountHelp:'Create an ONVIF account in the camera and enter its credentials below.',
+ modelHanwhaHelp:'Choose a camera profile configured for H.264 and verify the ONVIF settings.'
+});
+Object.assign(dict.bg,{
+ popularManufacturers:'Популярни производители',mostUsedCameras:'Най-използвани камери',
+ streamURLPreview:'RTSP адрес',hanwhaProfile:'Номер на RTSP профила',
+ modelONVIFHelp:'Включи ONVIF в камерата и провери HTTP порта и данните за вход.',
+ modelONVIFAccountHelp:'Създай ONVIF потребител в камерата и въведи данните му по-долу.',
+ modelHanwhaHelp:'Избери профил на камерата с H.264 и провери настройките за ONVIF.'
+});
 const form=$('cameraForm'),field=name=>form.elements.namedItem(name);
+const singleStreamFamilies=new Set(['axis','hanwha','avigilon','pelco']);
+const noChannelFamilies=new Set(['tp_link','axis','bosch','avigilon','pelco','uniview']);
+const separateONVIFFamilies=new Set(['axis','hikvision']);
+let activeStreamSource='dahua';
+
+function renderPopularStream(){
+ const option=field('stream_source').selectedOptions[0];
+ const info=$('popularStreamInfo');
+ info.hidden=!option?.hasAttribute('data-model');
+ if(info.hidden)return;
+ const family=option.dataset.family;
+ const channel=field('channel').value||'1',stream=Number(field('subtype').value);
+ const paths={
+  axis:'/axis-media/media.amp?videocodec=h264',
+  hanwha:`/profile${channel}/media.smp`,
+  hikvision:`/Streaming/Channels/${channel}0${stream+1}`,
+  bosch:`/?inst=${stream+1}&h26x=4`
+ };
+ const address=field('host').value.trim()||'camera.example';
+ const host=address.includes(':')&&!address.startsWith('[')?'['+address+']':address;
+ $('popularStreamURL').textContent=`rtsp://${host}:${field('port').value||'554'}${paths[family]}`;
+ $('popularStreamHelp').textContent=t(separateONVIFFamilies.has(family)?'modelONVIFAccountHelp':family==='hanwha'?'modelHanwhaHelp':'modelONVIFHelp');
+}
 function streamSourceChanged(){
- const source=field('stream_source').value;
+ const option=field('stream_source').selectedOptions[0];
+ const source=field('stream_source').value,family=option?.dataset.family||source;
+ activeStreamSource=source;
  for(const label of form.querySelectorAll('[data-stream-fields]')){
   const active=(source==='custom'?label.dataset.streamFields==='custom':label.dataset.streamFields==='preset')
-   && (source!=='tp_link'||label.id!=='streamChannel');
+   && (label.id!=='streamChannel'||!noChannelFamilies.has(family))
+   && (label.id!=='streamSubtype'||!singleStreamFamilies.has(family));
   label.hidden=!active;
   label.querySelector('input,select').disabled=!active;
  }
+ const channelLabel=$('streamChannelLabel');
+ channelLabel.dataset.t=family==='hanwha'?'hanwhaProfile':'channel';
+ channelLabel.textContent=t(channelLabel.dataset.t);
  field('rtsp_url').required=source==='custom'&&!editing?.has_rtsp_url;
- field('password').required=source!=='custom'&&!editing;
+ field('password').required=source!=='custom'&&(!editing||(option?.hasAttribute('data-model')&&!editing.has_password));
+ renderPopularStream();
 }
-field('stream_source').onchange=streamSourceChanged;
+field('stream_source').onchange=()=>{
+ const select=field('stream_source'),option=select.selectedOptions[0],family=option.dataset.family;
+ if(option.dataset.catalog){
+  select.value=activeStreamSource;
+  openCameraCatalog(option.dataset.catalog);
+  return;
+ }
+ if(family==='hanwha')field('channel').value=2;
+ if(option.hasAttribute('data-model')){
+  field('port').value=554;
+  if(family==='hikvision')field('channel').value=1;
+  field('subtype').value='0';
+  field('motion_source').value='onvif';
+  field('onvif_port').value=80;
+  field('onvif_soap').value='auto';
+  field('onvif_fallback').checked=true;
+  field('onvif_use_camera_credentials').checked=!separateONVIFFamilies.has(family);
+  motionMethodChanged();
+ }
+ streamSourceChanged();
+};
+for(const name of ['host','port','channel','subtype'])field(name).addEventListener('input',renderPopularStream);
 
 Object.assign(dict.en,{
  cameraCatalog:'Browse H.264 camera streams',catalogSearch:'Search by manufacturer or model',
@@ -130,7 +195,7 @@ function renderCatalog(){
  $('catalogMore').hidden=matches.length<=catalogLimit;
 }
 
-$('openCameraCatalog').onclick=async()=>{
+async function openCameraCatalog(search=''){
  catalogSelection=null;
  catalogLimit=catalogPageSize;
  catalogForm.reset();
@@ -139,7 +204,7 @@ $('openCameraCatalog').onclick=async()=>{
  const host=field('host');
  catalogField('host').value=host.value;
  catalogField('username').value=field('username').value;
- $('catalogSearch').value='';
+ $('catalogSearch').value=search;
  catalogDialog.showModal();
  $('catalogSearch').focus();
  if(!catalogEntries){
@@ -156,7 +221,8 @@ $('openCameraCatalog').onclick=async()=>{
   }
  }
  if(catalogDialog.open)renderCatalog();
-};
+}
+$('openCameraCatalog').onclick=()=>openCameraCatalog();
 $('closeCameraCatalog').onclick=()=>catalogDialog.close();
 catalogDialog.addEventListener('close',()=>{catalogField('password').value='';});
 $('catalogSearch').oninput=()=>{

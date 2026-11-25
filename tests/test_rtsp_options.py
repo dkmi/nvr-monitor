@@ -1,7 +1,7 @@
 """Integration check: the actual installed RTSP demuxer must accept our options."""
 import json, os, subprocess, unittest
 from pathlib import Path
-from app.engine import validate_camera,input_args
+from app.engine import RTSP_MODELS, validate_camera,input_args
 from app.onvif import Client
 
 class RTSPOptionsTest(unittest.TestCase):
@@ -63,5 +63,25 @@ class RTSPOptionsTest(unittest.TestCase):
                       .replace('[USERNAME]', 'test').replace('[PASSWORD]', 'p%40ss'))
             url = f"rtsp://camera.example:{entry['port']}{stream}"
             self.assertEqual(input_args(validate_camera({'rtsp_url': url}))[-1], url)
+
+    def test_popular_models_have_onvif_defaults_and_camera_family_urls(self):
+        paths = {
+            'axis': '/axis-media/media.amp?videocodec=h264',
+            'hanwha': '/profile2/media.smp',
+            'hikvision': '/Streaming/Channels/101',
+            'bosch': '/?inst=1&h26x=4',
+        }
+        self.assertEqual(len(RTSP_MODELS), 10)
+        for preset, family in RTSP_MODELS.items():
+            with self.subTest(preset=preset):
+                camera = validate_camera(dict(host='camera.example', rtsp_preset=preset,
+                                              username='test', password='a@b'))
+                self.assertEqual(camera['rtsp_preset'], preset)
+                self.assertEqual(input_args(camera)[-1], 'rtsp://test:a%40b@camera.example:554' + paths[family])
+                self.assertEqual(camera['motion_source'], 'onvif')
+                self.assertEqual((camera['onvif_port'], camera['onvif_soap']), (80, 'auto'))
+                self.assertEqual(camera['onvif_use_camera_credentials'], family in ('bosch', 'hanwha'))
+                self.assertTrue(camera['onvif_fallback'])
+                self.assertFalse(camera['motion'])
 
 if __name__=='__main__':unittest.main()

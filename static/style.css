@@ -37,3 +37,5 @@ aside nav{flex-direction:column;gap:6px}aside nav button{width:100%;text-align:l
 #catalogMore{margin-top:8px}
 #catalogAddress{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 #catalogSelected{display:grid;gap:4px;margin-bottom:12px}
+
+.popular-stream-info{grid-column:1/-1;margin:0;overflow-wrap:anywhere}

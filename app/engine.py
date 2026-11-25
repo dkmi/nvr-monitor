@@ -12,7 +12,32 @@ RTSP_PRESETS = {
     'hikvision': lambda channel, subtype: f'/Streaming/Channels/{channel}{subtype + 1:02d}',
     'reolink': lambda channel, subtype: f'/Preview_{channel:02d}_{"sub" if subtype else "main"}',
     'tp_link': lambda channel, subtype: f'/stream{subtype + 1}',
+    'axis': lambda channel, subtype: '/axis-media/media.amp?videocodec=h264',
+    'hanwha': lambda channel, subtype: f'/profile{channel}/media.smp',
+    'bosch': lambda channel, subtype: f'/?inst={subtype + 1}&h26x=4',
+    'avigilon': lambda channel, subtype: '/defaultPrimary?streamType=u',
+    'pelco': lambda channel, subtype: '/live.sdp',
+    'uniview': lambda channel, subtype: f'/media/video{subtype + 1}',
 }
+
+RTSP_MODELS = {
+    'axis-p3267-lve': 'axis',
+    'hanwha-qnv-c8083r': 'hanwha',
+    'hanwha-qnv-c6083r': 'hanwha',
+    'hikvision-ds-2td2628-10-qa': 'hikvision',
+    'bosch-nde-5702-a': 'bosch',
+    'axis-p3265-lve-9mm': 'axis',
+    'axis-p3265-lv': 'axis',
+    'axis-p1455-le-9mm': 'axis',
+    'axis-m3216-lve': 'axis',
+    'axis-m3086-v': 'axis',
+}
+RTSP_FAMILIES = {**RTSP_MODELS, 'intelbras': 'dahua'}
+SINGLE_STREAM_FAMILIES = {'axis', 'hanwha', 'avigilon', 'pelco'}
+
+
+def rtsp_family(preset):
+    return RTSP_FAMILIES.get(preset, preset)
 
 
 def parse_rtsp_url(value):
@@ -38,12 +63,19 @@ def validate_camera(value):
     c['name'] = str(c.get('name','Camera')).strip()[:80] or 'Camera'
     rtsp_url = c.get('rtsp_url', '')
     preset = c.get('rtsp_preset', 'dahua')
-    if not isinstance(preset, str) or preset not in RTSP_PRESETS:
+    if not isinstance(preset, str) or rtsp_family(preset) not in RTSP_PRESETS:
         raise ValueError('Invalid RTSP preset')
     if rtsp_url != '':
         url = parse_rtsp_url(rtsp_url)
         c['host'] = url.hostname
         c['port'] = url.port or 554
+    family = rtsp_family(preset)
+    if not rtsp_url:
+        if family == 'hanwha':
+            c.setdefault('channel', 2)
+        if preset in RTSP_MODELS:
+            c.setdefault('motion_source', 'onvif')
+            c.setdefault('onvif_use_camera_credentials', family not in ('axis', 'hikvision'))
     host = str(c.get('host','')).strip()
     if not host or len(host)>253 or not re.fullmatch(r'[A-Za-z0-9.:-]+',host): raise ValueError('Invalid host')
     c['host'] = host
@@ -85,7 +117,7 @@ def input_args(camera):
     url = camera.get('rtsp_url')
     if not url:
         host=camera['host']; host='['+host+']' if ':' in host else host
-        path = RTSP_PRESETS[camera.get('rtsp_preset', 'dahua')](camera['channel'], camera['subtype'])
+        path = RTSP_PRESETS[rtsp_family(camera.get('rtsp_preset', 'dahua'))](camera['channel'], camera['subtype'])
         username = quote(camera['username'], safe='')
         password = quote(camera['password'], safe='')
         url = f"rtsp://{username}:{password}@{host}:{camera['port']}{path}"
@@ -149,7 +181,8 @@ class CameraWorker(threading.Thread):
     def start_detector(self):
         args=self.source if self.source else input_args(self.camera)
         detector_args=args
-        if not self.source and not self.camera.get('rtsp_url') and self.camera['subtype']==0:
+        if (not self.source and not self.camera.get('rtsp_url') and self.camera['subtype']==0
+                and rtsp_family(self.camera.get('rtsp_preset', 'dahua')) not in SINGLE_STREAM_FAMILIES):
             # Motion needs only a tiny frame; avoid decoding the full-resolution main stream twice.
             auxiliary=input_args({**self.camera,'subtype':1})
             try:
