@@ -6,7 +6,7 @@ Self-hosted video surveillance for Linux and Docker. Watch cameras with audio, r
 
 **Live demo:** [Try NVR Monitor](https://nvr.unix-bg.org/demo/). Sign in with username `demo` and password `demo`. The demo is read-only and uses synthetic camera footage.
 
-Open **Add camera** in the demo to try the manufacturer selector and the **Custom RTSP URL** field. Changes are never saved.
+Open **Add camera** in the demo to try **Most used cameras**, the manufacturer selector and the **Custom RTSP URL** field.
 
 **Guides**
 
@@ -66,6 +66,8 @@ For a preset, enter the host, credentials and RTSP port, then select the channel
 **Browse H.264 camera streams** opens a searchable catalog of RTSP templates sourced from the [Shinobi Hub camera directory](https://hub.shinobi.video/explore/cameras). Search by manufacturer or model, select a template and enter your camera's address, port and credentials. The catalog fills the Custom RTSP URL field for review before saving. Manufacturer paths without a model label are candidates to try. Enable H.264 in the camera settings and verify the stream after saving.
 
 **Most used cameras** contains the ten models in the [JVSG 2024 list](https://www.jvsg.com/top-rated-security-camera/). Select a model to see its RTSP URL and prefill ONVIF motion detection, HTTP port 80, automatic SOAP version and RTSP fallback. Enter the camera's actual credentials. Axis and Hikvision profiles start with separate ONVIF credentials. Hanwha starts with RTSP profile 2; choose the number of the H.264 profile configured on your camera. Selecting a model leaves the motion recording checkbox as set.
+
+[Setup guide and screenshot](https://nvr.unix-bg.org/help/#most-used-cameras) · [Try the presets in the read-only demo](https://nvr.unix-bg.org/demo/) (`demo` / `demo`)
 
 The **Popular manufacturers** group includes common RTSP formats for [Axis](https://developer.axis.com/video-streaming-and-recording/video-streaming/reference/rtsp-endpoints/), [Hanwha Vision](https://support.hanwhavision.com/hc/en-001/articles/47782445700243-RTSP-URL-Information-for-Hanwha-Devices), [Bosch](https://knowledge.keenfinity-group.com/video-systems/article/how-is-rtsp-usage-supported-with-bosch-vip-devices), [Avigilon fixed IP cameras](https://docs.avigilon.com/bundle/ip-fixed-camera-web-interface/page/compression-and-image-rate/RTSP-stream-URI.htm), [Intelbras](https://botminio.apps.intelbras.com.br/dvr/HTTP_API_V3_59_Intelbras.pdf), [Uniview](https://www.uniview.com/res/202309/01/20230901_1886996_How%20to%20Get%20the%20URLs%20for%20Uniview%20IPC%20and%20NVR_975509_168459_0.pdf) and [Pelco Sarix Value](https://media.pelco.com/wp-content/uploads/2021/06/16153313/C6701M-A_SarixValueSeriesIRCameras_OperationsManual_061621.pdf). Honeywell opens the catalog filtered to that manufacturer. Use the camera's generated URL with Custom when its RTSP path differs.
 
