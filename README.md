@@ -46,6 +46,8 @@ Open **Add camera** in the demo to try **Most used cameras**, the manufacturer s
 
 ![Add camera with Most used cameras expanded and an example RTSP address](https://nvr.unix-bg.org/gallery/most-used-cameras.webp?v=5172d95)
 
+[Instructions in Help](https://nvr.unix-bg.org/help/#most-used-cameras) · [Try the read-only demo](https://nvr.unix-bg.org/demo/)
+
 ## Quick start
 
 Requirements: Linux, Docker Engine with the Compose plugin, and network access to your cameras. The installer also uses Python 3.
