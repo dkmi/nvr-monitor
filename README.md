@@ -34,13 +34,13 @@ Open **Add camera** in the demo to try **Most used cameras**, the manufacturer s
 
 ![Playback with camera previews and a recording timeline](https://nvr.unix-bg.org/gallery/playback.webp?v=5172d95)
 
-[Instructions in Help](https://nvr.unix-bg.org/help/#recordings) · [Try the read-only demo](https://nvr.unix-bg.org/demo/)
+[Instructions in Help](https://nvr.unix-bg.org/help/#playback) · [Try the read-only demo](https://nvr.unix-bg.org/demo/)
 
 **Motion Photos dashboard**
 
 ![Motion Photos dashboard with a preview for each camera](https://nvr.unix-bg.org/gallery/photos.webp?v=5172d95)
 
-[Instructions in Help](https://nvr.unix-bg.org/help/#recordings) · [Try the read-only demo](https://nvr.unix-bg.org/demo/)
+[Instructions in Help](https://nvr.unix-bg.org/help/#motion-photos) · [Try the read-only demo](https://nvr.unix-bg.org/demo/)
 
 **Add camera · Most used cameras**
 
