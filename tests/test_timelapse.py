@@ -68,6 +68,9 @@ class PhotoTests(unittest.TestCase):
   for role in ('limited','playback','full'):
    store.save_user({'username':'photo-'+role,'password':'synthetic-photo-password','role':role,'cameras':[cams[0]['id']]});client=app.test_client();client.post('/api/login',json={'username':'photo-'+role,'password':'synthetic-photo-password'})
    photos=client.get('/api/timelapse',query_string=params).json['photos'];self.assertTrue(photos)
+   dashboard=client.get('/api/timelapse/dashboard').json
+   self.assertEqual({tile['id']:tile['preview']['id'] for tile in dashboard},
+                    {m['camera_id']:m['id'] for m in (metas[::3] if role=='full' else metas[:1])})
    response=client.get(endpoint(metas[0],'?download=1'));self.assertEqual(response.status_code,200);self.assertIn('attachment',response.headers['Content-Disposition']);response.close()
    response=client.get(endpoint(metas[0],'?thumb=1'));self.assertEqual(response.status_code,200);response.close()
    if role!='full':

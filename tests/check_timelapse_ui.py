@@ -21,11 +21,21 @@ def main():
   server=make_server('127.0.0.1',0,app,threaded=True);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
   try:
    with sync_playwright() as p:
-    b=p.chromium.launch(headless=True);page=b.new_page(viewport={'width':1500,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.goto(f'http://127.0.0.1:{server.server_port}');page.locator('#authUsername').fill('photo-admin');page.locator('#authPassword').fill('synthetic-gallery-password');page.locator('#authForm button.primary').click();page.locator('#shell').wait_for(state='visible');page.locator('#photosTab').click();page.wait_for_function('()=>document.querySelectorAll(".photo-card").length===4');page.wait_for_function('()=>[...document.querySelectorAll(".photo-card img")].every(i=>i.naturalWidth>0)')
+    b=p.chromium.launch(headless=True);page=b.new_page(viewport={'width':1500,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.goto(f'http://127.0.0.1:{server.server_port}');page.locator('#authUsername').fill('photo-admin');page.locator('#authPassword').fill('synthetic-gallery-password');page.locator('#authForm button.primary').click();page.locator('#shell').wait_for(state='visible');page.locator('#photosTab').click()
+    page.wait_for_function('()=>document.querySelectorAll("#photoDashboard button").length===2')
+    page.wait_for_function('()=>[...document.querySelectorAll("#photoDashboard img")].filter(i=>i.naturalWidth>0).length===2')
+    assert page.locator('#photoCamera').input_value()=='dashboard' and page.locator('#photoGallery').is_hidden()
+    page.locator('#photoDashboard').get_by_role('button',name='Entrance').click()
+    assert page.locator('#photoCamera').input_value()==cams[0]['id']
+    page.wait_for_function('()=>document.querySelectorAll(".photo-card").length===2')
+    page.locator('#photoCamera').select_option('');page.wait_for_function('()=>document.querySelectorAll(".photo-card").length===4');page.wait_for_function('()=>[...document.querySelectorAll(".photo-card img")].every(i=>i.naturalWidth>0)')
     page.locator('#photoCamera').select_option(cams[0]['id']);page.wait_for_function('()=>document.querySelectorAll(".photo-card").length===2');page.locator('.photo-card').first.click();page.locator('#photoDialog').wait_for(state='visible');page.wait_for_function('()=>document.querySelector("#photoFull").naturalWidth===640');download=page.request.get(f'http://127.0.0.1:{server.server_port}'+page.locator('#downloadPhoto').get_attribute('href'));assert download.headers['content-type']=='image/jpeg' and 'attachment' in download.headers['content-disposition'];page.locator('#nextPhoto').click();assert page.locator('#nextPhoto').is_disabled();page.keyboard.press('Escape');assert page.locator('#photoDialog').is_hidden()
     yesterday=datetime.datetime.fromtimestamp(now-86400).strftime('%Y-%m-%d');page.locator('#photoDate').fill(yesterday);page.locator('#refreshPhotos').click();page.wait_for_function('()=>document.querySelectorAll(".photo-card").length===1')
     page.locator('.cameraRow').first.click();page.locator('[name="timelapse"]').check();page.locator('[name="timelapse_interval"]').fill('17');page.locator('[name="timelapse_max_days"]').fill('12');page.locator('[name="timelapse_max_mb"]').fill('20');page.locator('#cameraForm button.primary').click();page.locator('#cameraDialog').wait_for(state='hidden');saved=next(c for c in store.cameras() if c['id']==cams[0]['id']);assert saved['timelapse'] and saved['timelapse_interval']==17 and saved['timelapse_max_days']==12 and saved['timelapse_max_mb']==20;assert saved['password']==cams[0]['password'] and saved['motion']
-    page.locator('aside [data-lang="bg"]').click();assert page.locator('#photosTab').inner_text()!='Motion photos';page.screenshot(path=str(Path(__file__).resolve().parents[3]/'work/nvr-timelapse-ui.png'));assert not errors,errors;b.close()
+    page.locator('#photoCamera').select_option('dashboard')
+    page.wait_for_function('()=>document.querySelectorAll("#photoDashboard button").length===2')
+    assert page.locator('#photoGallery').is_hidden()
+    page.locator('aside [data-lang="bg"]').click();assert page.locator('#photoCamera option[value="dashboard"]').inner_text()=='Табло';assert page.locator('#photosTab').inner_text()!='Motion photos';page.screenshot(path=str(Path(__file__).resolve().parents[3]/'work/nvr-timelapse-ui.png'));assert not errors,errors;b.close()
    print('PASS gallery camera/date filters, JPEG thumbnails/full view/download, navigation, BG/EN, per-camera settings and existing credentials preserved',flush=True)
   finally:server.shutdown();thread.join()
 if __name__=='__main__':main()

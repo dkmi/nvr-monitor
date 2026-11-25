@@ -1,4 +1,5 @@
 """Motion-triggered JPEG archive, bounded capture jobs and per-camera retention."""
+import math
 import datetime, json, os, queue, re, shutil, subprocess, threading, time, uuid
 from pathlib import Path
 import requests
@@ -102,12 +103,27 @@ def photo_index(recordings,start,end,camera=None):
         for day in days:candidates.extend((folder/day).glob('*.json'))
     # Timestamp-prefixed filenames permit newest-first pagination without
     # opening every old metadata file on every gallery request.
+    for photo in photo_rows(candidates):
+        if start <= photo['start'] < end:
+            yield photo
+
+
+def latest_photo(recordings, camera):
+    folder = Path(recordings) / 'timelapse' / camera
+    for day in sorted(folder.glob('????-??-??'), reverse=True):
+        photo = next(photo_rows(day.glob('*.json')), None)
+        if photo is not None:
+            return photo
+    return None
+
+
+def photo_rows(candidates):
     for p in sorted(candidates,key=lambda p:p.name,reverse=True):
         try:
             if not PHOTO_ID.fullmatch(p.stem):continue
             m=json.loads(p.read_text());uuid.UUID(m['camera_id'])
             if m['id']!=p.stem or m['camera_id']!=p.parent.parent.name or m['day']!=p.parent.name:continue
-            if start<=m['start']<end and p.with_suffix('.jpg').is_file():yield m
+            if math.isfinite(m['start']) and p.with_suffix('.jpg').is_file():yield m
         except (OSError,ValueError,KeyError,TypeError):continue
 
 class Snapshotter:

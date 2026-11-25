@@ -12,7 +12,7 @@ from .engine import Engine, validate_camera
 from .updates import Updates
 from .version import VERSION
 from .revision import installed_revision
-from .timelapse import photo_index, PHOTO_ID
+from .timelapse import latest_photo, photo_index, PHOTO_ID
 from .recovery import Recovery, send_mail, smtp_settings, valid_email
 
 PUBLIC_API = {
@@ -33,7 +33,11 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     setup_file=data/'setup-token'
     if store.users():setup_file.unlink(missing_ok=True)
     app.extensions.update(store=store,engine=engine,sessions=sessions)
-    if start_engine:engine.sync(store.cameras())
+    def sync_cameras(cameras):
+        engine.sync([{key: value for key, value in camera.items() if key != 'live_delay'}
+                     for camera in cameras])
+
+    if start_engine:sync_cameras(store.cameras())
 
     def session():
         token=request.cookies.get('dm_session','')
@@ -106,23 +110,10 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     def install_update():
         admin_only();return jsonify(updates.queue(request.get_json().get('tag'),request.get_json().get('revision'))),202
 
-    def viewing_preferences():
-        return store.get('viewing',{'live_delay':max(0,min(60,int(os.getenv('LIVE_DELAY_SECONDS','30'))))})
-
-    @app.get('/api/preferences')
-    def preferences():return jsonify(viewing_preferences())
-
-    @app.post('/api/preferences')
-    def set_preferences():
-        admin_only();delay=request.get_json().get('live_delay')
-        if isinstance(delay,bool) or not isinstance(delay,int) or not 0<=delay<=60:abort(400)
-        store.put('viewing',{'live_delay':delay})
-        return jsonify(live_delay=delay)
-
     @app.get('/api/state')
     def state():
         _,row=session()
-        return jsonify(configured=bool(store.users()),authenticated=bool(row),csrf=row['csrf'] if row else None,user=g.user if row else None,live_delay=viewing_preferences()['live_delay'],email_recovery=bool(store.get('smtp',{}).get('enabled')))
+        return jsonify(configured=bool(store.users()),authenticated=bool(row),csrf=row['csrf'] if row else None,user=g.user if row else None,email_recovery=bool(store.get('smtp',{}).get('enabled')))
 
     def rate_limit(scope='login'):
         bucket=(scope,request.remote_addr)
@@ -288,6 +279,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             w=engine.workers.get(c['id']);listener=w.onvif if w else None
             admin = g.user['role'] == 'admin'
             visible={k:v for k,v in c.items() if k not in ('password','onvif_password','rtsp_url')} if admin else {k:c[k] for k in ('id','name','enabled')}
+            visible['live_delay'] = c.get('live_delay', 0)
             if admin:
                 visible['has_rtsp_url'] = bool(c.get('rtsp_url'))
             out.append({**visible,'has_password':bool(c['password']) if g.user['role']=='admin' else False,'has_onvif_password':bool(c.get('onvif_password')) if g.user['role']=='admin' else False,'detection_mode':w.detection_mode if w else 'disabled','video_mode':('copy' if w.video_copy else 'transcode') if w else 'disabled','source_video':w.source_video if w else {},'onvif_status':listener.snapshot()['status'] if listener else None,'status':w.status if w else 'disabled','error':w.error if w else None,'photo_error':w.photos.error if w else None,'last_photo':w.photos.last_saved if w else None})
@@ -302,7 +294,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if old and 'password' not in value:value['password']=old['password']
             if old and 'onvif_password' not in value:value['onvif_password']=old.get('onvif_password','')
             if old:
-                for key in ('timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb'):
+                for key in ('live_delay','timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb'):
                     if key not in value and key in old:value[key]=old[key]
                 if 'rtsp_url' in old:
                     value.setdefault('rtsp_url', old['rtsp_url'])
@@ -315,7 +307,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             if not old and len(cameras)>=32:abort(400)
             updated=[camera if c['id']==camera['id'] else c for c in cameras] if old else cameras+[camera]
             store.put('cameras',updated)
-            if start_engine:engine.sync(updated)
+            if start_engine:sync_cameras(updated)
         return jsonify(ok=True,id=camera['id'])
 
     @app.post('/api/cameras/order')
@@ -334,7 +326,7 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
         admin_only()
         with write_lock:
             updated=[c for c in store.cameras() if c['id']!=camera_id];store.put('cameras',updated)
-            if start_engine:engine.sync(updated)
+            if start_engine:sync_cameras(updated)
         return jsonify(ok=True)
 
     @app.get('/live/<camera_id>/<filename>')
@@ -346,6 +338,18 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
         path=w.session/filename
         if not path.is_file():abort(404)
         return send_file(path,mimetype='application/vnd.apple.mpegurl' if filename.endswith('m3u8') else 'video/mp4',conditional=True)
+
+    @app.get('/api/timelapse/dashboard')
+    def photo_dashboard():
+        tiles = []
+        for camera in store.cameras():
+            if can_camera(camera['id']):
+                tiles.append({
+                    'id': camera['id'],
+                    'name': camera['name'],
+                    'preview': latest_photo(recordings, camera['id']),
+                })
+        return jsonify(tiles)
 
     @app.get('/api/timelapse')
     def photos():
@@ -387,8 +391,22 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
     def clips():
         camera_id=request.args.get('camera');start=float(request.args.get('from',0));end=float(request.args.get('to',time.time()+86400))
         if camera_id and not can_camera(camera_id):abort(403)
-        rows=[m for m,p in clip_index() if can_camera(m['camera_id']) and (not camera_id or m['camera_id']==camera_id) and m['start']<end and m['start']+m['duration']>=start]
-        return jsonify(sorted(rows,key=lambda x:x['start'],reverse=True)[:2000])
+        include_previews = request.args.get('previews') == '1'
+        camera_ids = {c['id'] for c in store.cameras()} if include_previews else set()
+        previews = {}
+        rows = []
+        for clip, _ in clip_index():
+            cid = clip['camera_id']
+            if not can_camera(cid):
+                continue
+            if cid in camera_ids and (cid not in previews or clip['start'] > previews[cid]['start']):
+                previews[cid] = clip
+            if (not camera_id or cid == camera_id) and clip['start'] < end and clip['start'] + clip['duration'] >= start:
+                rows.append(clip)
+        rows = sorted(rows, key=lambda clip: clip['start'], reverse=True)[:2000]
+        if include_previews:
+            return jsonify(clips=rows, previews={cid: clip['id'] for cid, clip in previews.items()})
+        return jsonify(rows)
 
     @app.get('/recordings/<clip_id>.mp4')
     def video(clip_id):

@@ -37,6 +37,9 @@ class PermissionsTest(unittest.TestCase):
         self.assertEqual(client.post('/api/cameras/'+self.ids[0]+'/delete',json={},headers={'X-CSRF-Token':csrf}).status_code,403)
     def test_playback_all_or_selected_no_live(self):
         client,csrf,user=self.add('playback');self.assertEqual(len(client.get('/api/recordings').json),1)
+        result=client.get('/api/recordings?previews=1&from=1100&to=1200').json
+        self.assertEqual(result['clips'], [])
+        self.assertEqual(result['previews'], {self.ids[0]: self.clips[0]})
         for cid in self.ids:self.assertEqual(client.get('/live/'+cid+'/init.mp4').status_code,403)
         self.admin.post('/api/users',json={**user,'all_cameras':True},headers={'X-CSRF-Token':self.csrf})
         self.assertEqual(client.get('/api/cameras').status_code,401)

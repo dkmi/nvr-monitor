@@ -47,6 +47,10 @@ def validate_camera(value):
     host = str(c.get('host','')).strip()
     if not host or len(host)>253 or not re.fullmatch(r'[A-Za-z0-9.:-]+',host): raise ValueError('Invalid host')
     c['host'] = host
+    delay = c.get('live_delay', 0)
+    if type(delay) is not int or not 0 <= delay <= 60:
+        raise ValueError('Invalid live_delay')
+    c['live_delay'] = delay
     for key, default, lo, hi in [('timelapse_interval',10,2,3600),('timelapse_max_days',30,1,3650),('timelapse_max_mb',1024,1,1000000),('onvif_port',80,1,65535),('port',554,1,65535),('channel',1,1,64),('subtype',0,0,1),('sensitivity',55,1,100),('prebuffer',5,0,30),('tail',10,5,300),('max_days',30,1,3650),('max_gb',20,1,10000)]:
         n = int(c.get(key,default))
         if not lo <= n <= hi: raise ValueError('Invalid '+key)
@@ -68,7 +72,7 @@ def validate_camera(value):
     if c['motion_source'] not in ('rtsp','onvif') or c['onvif_soap'] not in ('auto','1.1','1.2'):raise ValueError('Invalid ONVIF mode')
     c['onvif_fallback']=bool(c.get('onvif_fallback',True))
     c['onvif_use_camera_credentials']=bool(c.get('onvif_use_camera_credentials',True))
-    validated = {k:c[k] for k in ['timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb','id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
+    validated = {k:c[k] for k in ['live_delay','timelapse','timelapse_interval','timelapse_max_days','timelapse_max_mb','id','name','host','port','channel','subtype','username','password','enabled','motion','sensitivity','prebuffer','tail','max_days','max_gb','folder','zone','motion_source','onvif_port','onvif_soap','onvif_fallback','onvif_use_camera_credentials','onvif_username','onvif_password']}
     if rtsp_url:
         # Preserve the original escaped credentials, path and query.
         validated['rtsp_url'] = 'rtsp:' + rtsp_url.partition(':')[2]

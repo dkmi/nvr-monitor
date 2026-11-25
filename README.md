@@ -21,7 +21,7 @@ Open **Add camera** in the demo to try the manufacturer selector and the **Custo
 - Per-camera motion sensitivity/zone for software analysis, prebuffer (0–30 seconds), recording tail, subfolder, age and storage limits.
 - MP4 Playback with camera/date filters, start time, duration, timeline, seeking and downloads.
 - Optional per-camera motion photos with interval, separate retention and a camera/date gallery.
-- Adjustable viewing buffer (0–60 seconds), independent of the recording prebuffer.
+- Adjustable per-camera viewing buffer (0–60 seconds), independent of the recording prebuffer.
 - Administrator, full-view, selected-camera and recordings-only accounts.
 - SQLite storage with encrypted camera credentials. User passwords are salted hashes.
 - Background recording continues when the browser is closed or the interface is locked.
@@ -77,7 +77,7 @@ Optional RTSP fallback starts software analysis if ONVIF fails and stops it when
 
 Choose **RTSP analysis** to use the server-side zone and sensitivity. The detector prefers an available lower-resolution substream, analyzed at 160×90 grayscale / 3 fps. Main and substream must show the same field of view.
 
-Configure recording, prebuffer, tail and retention per camera. The viewing buffer is a separate administrator setting in Live; zero removes intentional delay, while HLS/network delay remains. A buffer cannot compensate for sustained processing slower than realtime.
+Configure recording, prebuffer, tail and retention per camera. Set the viewing buffer in each camera’s settings. It defaults to zero for existing and new cameras. Zero removes intentional delay, while HLS/network delay remains. A buffer cannot compensate for sustained processing slower than realtime.
 
 MP4 files appear after an event/tail ends. Long events split into roughly 60-second pieces. Keyframe boundaries can include extra footage around the requested interval. Recordings and cache are not encrypted. Retention limits are per camera; deleting a camera preserves its archive but stops enforcing that camera's limits. Graceful shutdown waits for active recordings; power loss may lose an unfinished event.
 

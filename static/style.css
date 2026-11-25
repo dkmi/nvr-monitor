@@ -14,3 +14,13 @@ aside nav{flex-direction:column;gap:6px}aside nav button{width:100%;text-align:l
 .update-progress[hidden]{display:none}
 
 .rtsp-url-field{grid-column:1/-1}
+
+.camera-preview-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,128px));gap:12px;margin-bottom:20px}
+.camera-preview-tile{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px;background:var(--panel);text-align:left}
+.camera-preview-tile[aria-pressed="true"]{border-color:var(--accent);background:#1c3541}
+.camera-preview-frame{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:1;overflow:hidden;border-radius:4px;background:#080d14;color:var(--muted);font-size:24px}
+.camera-preview-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;visibility:hidden}
+.camera-preview-frame video.ready{visibility:visible}
+.camera-preview-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+
+.camera-preview-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}

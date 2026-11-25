@@ -1,22 +1,54 @@
-import tempfile,unittest
+import tempfile
+import unittest
 from pathlib import Path
+
 from app.server import create_app
 
+
 class ViewingTests(unittest.TestCase):
- def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory()
-  self.addCleanup(self.tmp.cleanup)
-  self.root=Path(self.tmp.name);self.app=create_app(self.root/'d',self.root/'r',self.root/'c',False)
-  self.addCleanup(self.app.extensions['store'].close)
-  self.client=self.app.test_client();r=self.client.post('/api/setup',json={'username':'owner','password':'owner-password-2026'});self.csrf=r.json['csrf']
- def test_delay_zero_and_persistence(self):
-  self.assertEqual(self.client.get('/api/preferences').json['live_delay'],30)
-  for value in (0,15,60):
-   r=self.client.post('/api/preferences',json={'live_delay':value},headers={'X-CSRF-Token':self.csrf});self.assertEqual(r.status_code,200);self.assertEqual(self.client.get('/api/state').json['live_delay'],value)
-  self.assertEqual(self.app.extensions['store'].get('viewing')['live_delay'],60)
-  self.assertFalse(self.app.extensions['engine'].workers)
- def test_limits_csrf_and_roles(self):
-  for value in (-1,61,True,'30',2.5):self.assertEqual(self.client.post('/api/preferences',json={'live_delay':value},headers={'X-CSRF-Token':self.csrf}).status_code,400)
-  self.assertEqual(self.client.post('/api/preferences',json={'live_delay':0}).status_code,403)
-  r=self.client.post('/api/users',json={'username':'viewer','password':'viewer-password-2026','role':'full'},headers={'X-CSRF-Token':self.csrf});viewer=self.app.test_client();r=viewer.post('/api/login',json={'username':'viewer','password':'viewer-password-2026'});self.assertEqual(viewer.get('/api/preferences').status_code,200);self.assertEqual(viewer.post('/api/preferences',json={'live_delay':0},headers={'X-CSRF-Token':r.json['csrf']}).status_code,403)
-if __name__=='__main__':unittest.main()
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        app = create_app(root / 'data', root / 'recordings', root / 'cache', False)
+        self.store = app.extensions['store']
+        self.addCleanup(self.store.close)
+        self.client = app.test_client()
+        response = self.client.post('/api/setup', json={'username': 'owner', 'password': 'owner-password-2026'})
+        self.headers = {'X-CSRF-Token': response.json['csrf']}
+        self.camera = {'host': '192.0.2.20', 'enabled': False}
+
+    def save(self, **fields):
+        return self.client.post('/api/cameras', json={**self.camera, **fields}, headers=self.headers)
+
+    def test_legacy_and_new_cameras_start_at_zero(self):
+        older = self.save(name='Existing').json['id']
+        saved = self.store.cameras()
+        saved[0].pop('live_delay')
+        self.store.put('cameras', saved)
+        self.store.put('viewing', {'live_delay': 30})
+        newer = self.save(name='New').json['id']
+        self.assertEqual({c['id']: c['live_delay'] for c in self.client.get('/api/cameras').json},
+                         {older: 0, newer: 0})
+
+        for value in (15, 60, 0):
+            self.assertEqual(self.save(id=older, live_delay=value).status_code, 200)
+            self.assertEqual(self.save(id=older, name='Renamed').status_code, 200)
+            self.assertEqual({c['id']: c['live_delay'] for c in self.client.get('/api/cameras').json},
+                             {older: value, newer: 0})
+
+    def test_limits_csrf_and_roles(self):
+        for value in (-1, 61, True, '30', 2.5, None):
+            with self.subTest(value=value):
+                self.assertEqual(self.save(live_delay=value).status_code, 400)
+        self.assertEqual(self.client.post('/api/cameras', json=self.camera).status_code, 403)
+        self.assertEqual(self.save(live_delay=15).status_code, 200)
+        self.client.post('/api/users', json={
+            'username': 'viewer', 'password': 'viewer-password-2026', 'role': 'full',
+        }, headers=self.headers)
+        viewer = self.client.application.test_client()
+        login = viewer.post('/api/login', json={'username': 'viewer', 'password': 'viewer-password-2026'})
+        self.assertEqual(viewer.get('/api/cameras').json[0]['live_delay'], 15)
+        self.assertEqual(viewer.post('/api/cameras', json=self.camera, headers={
+            'X-CSRF-Token': login.json['csrf'],
+        }).status_code, 403)
