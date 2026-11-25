@@ -71,6 +71,132 @@ function streamSourceChanged(){
 }
 field('stream_source').onchange=streamSourceChanged;
 
+Object.assign(dict.en,{
+ cameraCatalog:'Browse H.264 camera streams',catalogSearch:'Search by manufacturer or model',
+ catalogMore:'Show more',catalogLoading:'Loading camera catalog…',catalogLoadError:'Camera catalog is unavailable.',
+ catalogNoMatches:'No matching streams.',catalogMatches:'{count} matching streams',
+ catalogBrandPath:'Manufacturer path · model unspecified',
+ catalogSourceHelp:'Community reference. Enable H.264 on the camera and check the stream for your model.',
+ useCatalogURL:'Use in Custom RTSP URL',catalogInvalidAddress:'Enter a valid camera hostname or IP address.',
+ catalogMissingUsername:'Enter a username for this password.'
+});
+Object.assign(dict.bg,{
+ cameraCatalog:'Каталог с H.264 потоци',catalogSearch:'Търси по производител или модел',
+ catalogMore:'Покажи още',catalogLoading:'Зареждане на каталога…',catalogLoadError:'Каталогът е недостъпен.',
+ catalogNoMatches:'Няма съвпадащи потоци.',catalogMatches:'Съвпадащи потоци: {count}',
+ catalogBrandPath:'Път за производителя · без конкретен модел',
+ catalogSourceHelp:'Справочник от общността. Включи H.264 в камерата и провери потока за твоя модел.',
+ useCatalogURL:'Използвай като ръчен RTSP адрес',catalogInvalidAddress:'Въведи валидно име на хост или IP адрес.',
+ catalogMissingUsername:'Въведи потребител за тази парола.'
+});
+const catalogDialog=$('cameraCatalogDialog'),catalogForm=$('catalogAddress');
+const catalogField=name=>catalogForm.elements.namedItem(name);
+const catalogPageSize=24;
+let catalogEntries=null,catalogSelection=null,catalogLimit=catalogPageSize;
+
+function addCatalogLabel(parent,entry){
+ parent.append(node('strong','',entry.brand+(entry.model?' · '+entry.model:'')));
+ if(!entry.model)parent.append(node('span','muted',t('catalogBrandPath')));
+ parent.append(node('code','',entry.port===554?entry.path:':'+entry.port+entry.path));
+}
+function renderCatalog(){
+ const terms=$('catalogSearch').value.trim().toLowerCase().split(/\s+/);
+ const matches=catalogEntries.filter(entry=>terms.every(term=>entry.search.includes(term)));
+ const results=$('catalogResults');
+ results.replaceChildren();
+ for(const entry of matches.slice(0,catalogLimit)){
+  const button=node('button','catalog-entry');
+  button.type='button';
+  addCatalogLabel(button,entry);
+  button.setAttribute('aria-pressed',String(entry===catalogSelection));
+  button.onclick=()=>{
+   catalogSelection=entry;
+   for(const item of results.children)item.setAttribute('aria-pressed',String(item===button));
+   $('catalogSelected').replaceChildren();
+   addCatalogLabel($('catalogSelected'),entry);
+   catalogField('port').value=entry.port;
+   const usesChannel=entry.path.includes('[CHANNEL]');
+   $('catalogChannel').hidden=!usesChannel;
+   catalogField('channel').disabled=!usesChannel;
+   $('catalogError').textContent='';
+   catalogForm.hidden=false;
+   catalogField('host').focus();
+  };
+  results.append(button);
+ }
+ $('catalogStatus').textContent=matches.length
+  ? t('catalogMatches').replace('{count}',new Intl.NumberFormat(lang).format(matches.length))
+  : t('catalogNoMatches');
+ $('catalogMore').hidden=matches.length<=catalogLimit;
+}
+
+$('openCameraCatalog').onclick=async()=>{
+ catalogSelection=null;
+ catalogLimit=catalogPageSize;
+ catalogForm.reset();
+ catalogForm.hidden=true;
+ $('catalogError').textContent='';
+ const host=field('host');
+ catalogField('host').value=host.value;
+ catalogField('username').value=field('username').value;
+ $('catalogSearch').value='';
+ catalogDialog.showModal();
+ $('catalogSearch').focus();
+ if(!catalogEntries){
+  $('catalogStatus').textContent=t('catalogLoading');
+  try{
+   const response=await fetch('/static/camera-catalog.json');
+   if(!response.ok)throw new Error('Catalog unavailable');
+   catalogEntries=(await response.json()).map(entry=>({
+    ...entry,search:[entry.brand,entry.model,entry.path].filter(Boolean).join(' ').toLowerCase()
+   }));
+  }catch(_){
+   $('catalogStatus').textContent=t('catalogLoadError');
+   return;
+  }
+ }
+ if(catalogDialog.open)renderCatalog();
+};
+$('closeCameraCatalog').onclick=()=>catalogDialog.close();
+catalogDialog.addEventListener('close',()=>{catalogField('password').value='';});
+$('catalogSearch').oninput=()=>{
+ catalogLimit=catalogPageSize;
+ if(catalogEntries)renderCatalog();
+};
+$('catalogMore').onclick=()=>{
+ catalogLimit+=catalogPageSize;
+ renderCatalog();
+ $('catalogResults').children[catalogLimit-catalogPageSize]?.focus();
+};
+catalogForm.onsubmit=event=>{
+ event.preventDefault();
+ if(!catalogSelection)return;
+ const address=catalogField('host').value.trim().replace(/^\[(.*)\]$/,'$1');
+ const host=address.includes(':')?'['+address+']':address;
+ try{
+  if(!/^(?:[A-Za-z0-9.-]+|\[[A-Fa-f0-9:]+\])$/.test(host))throw new Error('bad host');
+  new URL('rtsp://'+host);
+ }catch(_){
+  $('catalogError').textContent=t('catalogInvalidAddress');
+  return;
+ }
+ const username=catalogField('username').value,password=catalogField('password').value;
+ if(password&&!username){
+  $('catalogError').textContent=t('catalogMissingUsername');
+  return;
+ }
+ const encodedUsername=encodeURIComponent(username),encodedPassword=encodeURIComponent(password);
+ const credentials=username?encodedUsername+':'+encodedPassword+'@':'';
+ const values={CHANNEL:catalogField('channel').value,USERNAME:encodedUsername,PASSWORD:encodedPassword};
+ const path=catalogSelection.path.replace(/\[(CHANNEL|USERNAME|PASSWORD)\]/g,(_,key)=>values[key]);
+ field('stream_source').value='custom';
+ streamSourceChanged();
+ field('rtsp_url').value=`rtsp://${credentials}${host}:${catalogField('port').value}${path}`;
+ catalogDialog.close();
+ field('rtsp_url').focus();
+};
+
+
 function editCamera(c=null){if(me?.role!=='admin')return;editing=c;form.reset();$('formError').textContent='';for(const [key,value]of Object.entries(c||{})){const el=field(key);if(el&&!['password','onvif_password','rtsp_url'].includes(key)){if(el.type==='checkbox')el.checked=value;else el.value=value;}}field('username').value=c?.username||'admin';field('password').value='';field('password').placeholder=c?t('leavePassword'):'';field('stream_source').value=c?.has_rtsp_url?'custom':(c?.rtsp_preset||'dahua');field('rtsp_url').placeholder=c?.has_rtsp_url?t('keepRTSPURL'):'rtsp://user:password@192.0.2.20:554/stream1';streamSourceChanged();field('onvif_password').value='';field('onvif_password').placeholder=c?.has_onvif_password?t('leavePassword'):'';motionMethodChanged();const z=c?.zone||[0,0,1,1];['zx','zy','zw','zh'].forEach((k,i)=>field(k).value=Math.round(z[i]*100));$('sensValue').value=field('sensitivity').value;$('deleteCamera').hidden=!c;$('cameraDialog').showModal();drawZone();if(zonePlayer)zonePlayer.destroy();zonePlayer=c?.enabled?attach($('zoneVideo'),c.id):null;}
 $('addCamera').onclick=()=>editCamera();$('emptyAdd').onclick=()=>editCamera();$('closeCamera').onclick=()=>$('cameraDialog').close();$('cameraDialog').addEventListener('close',()=>{field('rtsp_url').value='';if(zonePlayer)zonePlayer.destroy();zonePlayer=null;});
 field('sensitivity').oninput=()=>{$('sensValue').value=field('sensitivity').value;};

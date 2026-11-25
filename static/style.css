@@ -26,3 +26,14 @@ aside nav{flex-direction:column;gap:6px}aside nav button{width:100%;text-align:l
 .camera-preview-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 
 .viewing-buffer-field p{margin:6px 0 0}
+
+.catalog-launch{grid-column:1/-1}
+#cameraCatalogDialog{width:min(640px,95vw)}
+#catalogStatus{margin:8px 0}
+.catalog-results{display:grid;gap:6px;max-height:15rem;overflow:auto}
+.catalog-entry{display:grid;gap:4px;text-align:left;min-width:0}
+.catalog-entry[aria-pressed="true"]{border-color:var(--accent)}
+.catalog-entry code,#catalogSelected code{overflow-wrap:anywhere}
+#catalogMore{margin-top:8px}
+#catalogAddress{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+#catalogSelected{display:grid;gap:4px;margin-bottom:12px}

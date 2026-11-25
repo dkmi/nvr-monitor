@@ -1,5 +1,6 @@
 """Integration check: the actual installed RTSP demuxer must accept our options."""
-import os, subprocess, unittest
+import json, os, subprocess, unittest
+from pathlib import Path
 from app.engine import validate_camera,input_args
 from app.onvif import Client
 
@@ -45,5 +46,22 @@ class RTSPOptionsTest(unittest.TestCase):
                     'rtsp://camera.example/live#token', 'rtsp://camera.example/a b', 'rtsp://bad%user@camera/live'):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, '^Invalid RTSP URL$'):
                 validate_camera({'rtsp_url': url})
+
+    def test_catalog_templates_work_with_custom_rtsp(self):
+        path = Path(__file__).resolve().parents[1] / 'static' / 'camera-catalog.json'
+        catalog = json.loads(path.read_text(encoding='utf-8'))
+        self.assertTrue(catalog)
+        self.assertTrue(any(entry['model'] for entry in catalog))
+        self.assertTrue(any(not entry['model'] for entry in catalog))
+        seen = set()
+        for entry in catalog:
+            key = (entry['brand'].casefold(), entry['model'].casefold(), entry['path'], entry['port'])
+            self.assertNotIn(key, seen)
+            seen.add(key)
+            self.assertTrue(entry['path'].startswith('/'), entry)
+            stream = (entry['path'].replace('[CHANNEL]', '1')
+                      .replace('[USERNAME]', 'test').replace('[PASSWORD]', 'p%40ss'))
+            url = f"rtsp://camera.example:{entry['port']}{stream}"
+            self.assertEqual(input_args(validate_camera({'rtsp_url': url}))[-1], url)
 
 if __name__=='__main__':unittest.main()
