@@ -5,6 +5,17 @@ from app.engine import RTSP_MODELS, validate_camera,input_args
 from app.onvif import Client
 
 class RTSPOptionsTest(unittest.TestCase):
+    def test_xiongmai_legacy_h264_profile(self):
+        for subtype in (0, 1):
+            camera = validate_camera({'host': '192.0.2.20', 'rtsp_preset': 'xiongmai',
+                                      'username': 'test', 'password': 'a_b&c', 'subtype': subtype})
+            self.assertEqual(input_args(camera)[-1],
+                             f'rtsp://192.0.2.20:554/user=test_password=a%5Fb%26c_channel=1_stream={subtype}.sdp?real_stream')
+            self.assertEqual((camera['motion_source'], camera['onvif_port'], camera['onvif_soap']),
+                             ('onvif', 8899, '1.2'))
+            self.assertTrue(camera['onvif_use_camera_credentials'])
+            self.assertFalse(camera['motion'])
+
     def test_installed_ffmpeg_supports_rtsp_arguments(self):
         c=validate_camera({'host':'127.0.0.1','username':'test','password':'not-a-camera'})
         args=input_args(c)

@@ -35,6 +35,19 @@ class PermissionsTest(unittest.TestCase):
         client,csrf,user=self.add('full');self.assertEqual(len(client.get('/api/cameras').json),2);self.assertEqual(len(client.get('/api/recordings').json),2)
         self.assertEqual(client.post('/api/users',json={'username':'hacker'},headers={'X-CSRF-Token':csrf}).status_code,403)
         self.assertEqual(client.post('/api/cameras/'+self.ids[0]+'/delete',json={},headers={'X-CSRF-Token':csrf}).status_code,403)
+    def test_saved_rtsp_url_is_only_returned_to_admin_for_editing(self):
+        url = 'rtsp://camera:test-password@192.0.2.20/live'
+        saved = self.admin.post('/api/cameras', json={'id': self.ids[0], 'rtsp_url': url},
+                                headers={'X-CSRF-Token': self.csrf})
+        self.assertEqual(saved.status_code, 200)
+        path = '/api/cameras/' + self.ids[0] + '/rtsp-url'
+        reader, _, _ = self.add('limited')
+        self.assertEqual(reader.get(path).status_code, 403)
+        self.assertEqual(self.app.test_client().get(path).status_code, 401)
+        self.assertNotIn('rtsp_url', self.admin.get('/api/cameras').json[0])
+        response = self.admin.get(path)
+        self.assertEqual(response.json, {'rtsp_url': url})
+        self.assertIn('no-store', response.headers['Cache-Control'])
     def test_playback_all_or_selected_no_live(self):
         client,csrf,user=self.add('playback');self.assertEqual(len(client.get('/api/recordings').json),1)
         result=client.get('/api/recordings?previews=1&from=1100&to=1200').json

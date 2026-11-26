@@ -88,6 +88,7 @@ function renderPopularStream(){
   axis:'/axis-media/media.amp?videocodec=h264',
   hanwha:`/profile${channel}/media.smp`,
   hikvision:`/Streaming/Channels/${channel}0${stream+1}`,
+  xiongmai:`/user=USERNAME_password=PASSWORD_channel=${channel}_stream=${stream}.sdp?real_stream`,
   bosch:`/?inst=${stream+1}&h26x=4`
  };
  const address=field('host').value.trim()||'camera.example';
@@ -123,11 +124,11 @@ field('stream_source').onchange=()=>{
  if(family==='hanwha')field('channel').value=2;
  if(option.hasAttribute('data-model')){
   field('port').value=554;
-  if(family==='hikvision')field('channel').value=1;
+  if(family==='hikvision'||family==='xiongmai')field('channel').value=1;
   field('subtype').value='0';
   field('motion_source').value='onvif';
-  field('onvif_port').value=80;
-  field('onvif_soap').value='auto';
+  field('onvif_port').value=family==='xiongmai'?8899:80;
+  field('onvif_soap').value=family==='xiongmai'?'1.2':'auto';
   field('onvif_fallback').checked=true;
   field('onvif_use_camera_credentials').checked=!separateONVIFFamilies.has(family);
   motionMethodChanged();
@@ -263,8 +264,23 @@ catalogForm.onsubmit=event=>{
 };
 
 
-function editCamera(c=null){if(me?.role!=='admin')return;editing=c;form.reset();$('formError').textContent='';for(const [key,value]of Object.entries(c||{})){const el=field(key);if(el&&!['password','onvif_password','rtsp_url'].includes(key)){if(el.type==='checkbox')el.checked=value;else el.value=value;}}field('username').value=c?.username||'admin';field('password').value='';field('password').placeholder=c?t('leavePassword'):'';field('stream_source').value=c?.has_rtsp_url?'custom':(c?.rtsp_preset||'dahua');field('rtsp_url').placeholder=c?.has_rtsp_url?t('keepRTSPURL'):'rtsp://user:password@192.0.2.20:554/stream1';streamSourceChanged();field('onvif_password').value='';field('onvif_password').placeholder=c?.has_onvif_password?t('leavePassword'):'';motionMethodChanged();const z=c?.zone||[0,0,1,1];['zx','zy','zw','zh'].forEach((k,i)=>field(k).value=Math.round(z[i]*100));$('sensValue').value=field('sensitivity').value;$('deleteCamera').hidden=!c;$('cameraDialog').showModal();drawZone();if(zonePlayer)zonePlayer.destroy();zonePlayer=c?.enabled?attach($('zoneVideo'),c.id):null;}
-$('addCamera').onclick=()=>editCamera();$('emptyAdd').onclick=()=>editCamera();$('closeCamera').onclick=()=>$('cameraDialog').close();$('cameraDialog').addEventListener('close',()=>{field('rtsp_url').value='';if(zonePlayer)zonePlayer.destroy();zonePlayer=null;});
+let rtspURLRequest=null;
+async function loadSavedRTSPURL(camera){
+ rtspURLRequest?.abort();
+ const request=new AbortController();
+ rtspURLRequest=request;
+ const input=field('rtsp_url');
+ try{
+  const result=await api(`/api/cameras/${camera.id}/rtsp-url`,undefined,request.signal);
+  if(rtspURLRequest===request&&$('cameraDialog').open&&field('stream_source').value==='custom'&&!input.value){
+   input.value=result.rtsp_url;
+  }
+ }catch(error){
+  if(!request.signal.aborted&&$('cameraDialog').open)toast(error.message);
+ }
+}
+function editCamera(c=null){if(me?.role!=='admin')return;rtspURLRequest?.abort();editing=c;form.reset();$('formError').textContent='';for(const [key,value]of Object.entries(c||{})){const el=field(key);if(el&&!['password','onvif_password','rtsp_url'].includes(key)){if(el.type==='checkbox')el.checked=value;else el.value=value;}}field('username').value=c?.username||'admin';field('password').value='';field('password').placeholder=c?t('leavePassword'):'';field('stream_source').value=c?.has_rtsp_url?'custom':(c?.rtsp_preset||'dahua');field('rtsp_url').placeholder=c?.has_rtsp_url?t('keepRTSPURL'):'rtsp://user:password@192.0.2.20:554/stream1';streamSourceChanged();field('onvif_password').value='';field('onvif_password').placeholder=c?.has_onvif_password?t('leavePassword'):'';motionMethodChanged();const z=c?.zone||[0,0,1,1];['zx','zy','zw','zh'].forEach((k,i)=>field(k).value=Math.round(z[i]*100));$('sensValue').value=field('sensitivity').value;$('deleteCamera').hidden=!c;$('cameraDialog').showModal();if(c?.has_rtsp_url)loadSavedRTSPURL(c);drawZone();if(zonePlayer)zonePlayer.destroy();zonePlayer=c?.enabled?attach($('zoneVideo'),c.id):null;}
+$('addCamera').onclick=()=>editCamera();$('emptyAdd').onclick=()=>editCamera();$('closeCamera').onclick=()=>$('cameraDialog').close();$('cameraDialog').addEventListener('close',()=>{rtspURLRequest?.abort();field('rtsp_url').value='';if(zonePlayer)zonePlayer.destroy();zonePlayer=null;});
 field('sensitivity').oninput=()=>{$('sensValue').value=field('sensitivity').value;};
 form.onsubmit=async e=>{e.preventDefault();const value={};for(const el of form.elements){if(!el.name||['stream_source','zx','zy','zw','zh'].includes(el.name)||(el.disabled&&el.closest('[data-stream-fields]')))continue;value[el.name]=el.type==='checkbox'?el.checked:(el.type==='number'||el.type==='range'?Number(el.value):el.value);}const source=field('stream_source').value;
  if(source!=='custom'){value.rtsp_url='';value.rtsp_preset=source;}

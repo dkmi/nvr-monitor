@@ -12,6 +12,7 @@ RTSP_PRESETS = {
     'hikvision': lambda channel, subtype: f'/Streaming/Channels/{channel}{subtype + 1:02d}',
     'reolink': lambda channel, subtype: f'/Preview_{channel:02d}_{"sub" if subtype else "main"}',
     'tp_link': lambda channel, subtype: f'/stream{subtype + 1}',
+    'xiongmai': lambda channel, subtype: f'/user={{username}}_password={{password}}_channel={channel}_stream={subtype}.sdp?real_stream',
     'axis': lambda channel, subtype: '/axis-media/media.amp?videocodec=h264',
     'hanwha': lambda channel, subtype: f'/profile{channel}/media.smp',
     'bosch': lambda channel, subtype: f'/?inst={subtype + 1}&h26x=4',
@@ -73,7 +74,10 @@ def validate_camera(value):
     if not rtsp_url:
         if family == 'hanwha':
             c.setdefault('channel', 2)
-        if preset in RTSP_MODELS:
+        if family == 'xiongmai':
+            c.setdefault('onvif_port', 8899)
+            c.setdefault('onvif_soap', '1.2')
+        if preset in RTSP_MODELS or family == 'xiongmai':
             c.setdefault('motion_source', 'onvif')
             c.setdefault('onvif_use_camera_credentials', family not in ('axis', 'hikvision'))
     host = str(c.get('host','')).strip()
@@ -117,10 +121,15 @@ def input_args(camera):
     url = camera.get('rtsp_url')
     if not url:
         host=camera['host']; host='['+host+']' if ':' in host else host
-        path = RTSP_PRESETS[rtsp_family(camera.get('rtsp_preset', 'dahua'))](camera['channel'], camera['subtype'])
+        family = rtsp_family(camera.get('rtsp_preset', 'dahua'))
+        path = RTSP_PRESETS[family](camera['channel'], camera['subtype'])
         username = quote(camera['username'], safe='')
         password = quote(camera['password'], safe='')
-        url = f"rtsp://{username}:{password}@{host}:{camera['port']}{path}"
+        if family == 'xiongmai':
+            path = path.format(username=username.replace('_', '%5F'), password=password.replace('_', '%5F'))
+            url = f"rtsp://{host}:{camera['port']}{path}"
+        else:
+            url = f"rtsp://{username}:{password}@{host}:{camera['port']}{path}"
     return ['-rtsp_transport','tcp','-timeout','15000000','-i',url]
 
 

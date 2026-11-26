@@ -285,6 +285,16 @@ def create_app(data=None, recordings=None, cache=None, start_engine=True):
             out.append({**visible,'has_password':bool(c['password']) if g.user['role']=='admin' else False,'has_onvif_password':bool(c.get('onvif_password')) if g.user['role']=='admin' else False,'detection_mode':w.detection_mode if w else 'disabled','video_mode':('copy' if w.video_copy else 'transcode') if w else 'disabled','source_video':w.source_video if w else {},'onvif_status':listener.snapshot()['status'] if listener else None,'status':w.status if w else 'disabled','error':w.error if w else None,'photo_error':w.photos.error if w else None,'last_photo':w.photos.last_saved if w else None})
         return jsonify(out)
 
+    @app.get('/api/cameras/<uuid:camera_id>/rtsp-url')
+    def camera_rtsp_url(camera_id):
+        admin_only()
+        camera = next((c for c in store.cameras() if c['id'] == str(camera_id)), None)
+        if not camera or not camera.get('rtsp_url'):
+            abort(404)
+        response = jsonify(rtsp_url=camera['rtsp_url'])
+        response.headers['Cache-Control'] = 'private, no-store'
+        return response
+
     @app.post('/api/cameras')
     def save_camera():
         admin_only()
